@@ -6,7 +6,7 @@ info:
     API de transferencias, cuentas, alertas AML y scoring interno (docs/diseno.md §3.4).
     Los montos viajan como cadena decimal. Los errores usan application/problem+json (RFC 9457).
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8081
     description: Local (transfer-service)
 tags:
   - name: transfers
