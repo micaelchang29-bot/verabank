@@ -1,0 +1,100 @@
+# CI de la fase 1: contratos, compilación y pruebas de transfer-service, y humo con Compose.
+# Dimensionado para el runner estándar de 4 CPU y 16 GB: una JVM de pruebas (-Xmx1g) con
+# PostgreSQL y Kafka compartidos por toda la suite; el humo levanta el perfil core (≈ 2 GB).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: contratos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Herramientas de validación
+        run: python -m pip install check-jsonschema==0.33.0 openapi-spec-validator==0.7.1 pyyaml==6.0.2
+      - name: contracts/validate.sh
+        run: PYTHON=python contracts/validate.sh
+
+  transfer-service:
+    name: transfer-service (compilación y pruebas)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MAVEN_OPTS: -Xmx512m
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Imágenes de Testcontainers
+        run: |
+          docker pull -q postgres:16.16
+          docker pull -q apache/kafka:4.3.2
+      - name: ./mvnw verify
+        working-directory: transfer-service
+        run: ./mvnw -B -ntp verify
+      - name: Informes de pruebas
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: transfer-service/target/surefire-reports/
+          retention-days: 7
+
+  smoke:
+    name: humo (make up-core, demo-idempotency, reconcile)
+    needs: [contracts, transfer-service]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SERVER_PORT: "8081"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: .env efímero
+        run: |
+          rnd() { openssl rand -hex 18; }
+          cluster_id="$(python3 -c 'import base64, uuid; print(base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("="))')"
+          sed -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rnd)/" \
+              -e "s/^VERABANK_TRANSFER_PASSWORD=.*/VERABANK_TRANSFER_PASSWORD=$(rnd)/" \
+              -e "s/^VERABANK_RISK_PASSWORD=.*/VERABANK_RISK_PASSWORD=$(rnd)/" \
+              -e "s/^VERABANK_BI_PASSWORD=.*/VERABANK_BI_PASSWORD=$(rnd)/" \
+              -e "s/^KAFKA_CLUSTER_ID=.*/KAFKA_CLUSTER_ID=${cluster_id}/" \
+              -e "s/^VERABANK_API_KEYS=.*/VERABANK_API_KEYS=ci:$(rnd)/" \
+              -e "s/^SERVER_PORT=.*/SERVER_PORT=${SERVER_PORT}/" \
+              .env.example > .env
+      - name: make up-core
+        run: make up-core
+      - name: make demo-idempotency
+        run: make demo-idempotency
+      - name: make check-events
+        run: make check-events
+      - name: make reconcile
+        run: make reconcile
+      - name: Log del servicio
+        if: failure()
+        run: tail -n 200 transfer-service/target/run/transfer-service.log || true
+      - name: make down-core
+        if: always()
+        run: make down-core
