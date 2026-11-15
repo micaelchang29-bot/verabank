@@ -1,0 +1,5 @@
+#!/bin/sh
+if grep -qiE 'co-authored-by:|generated with|-session:' "$1"; then
+  echo "Rechazado: el mensaje contiene firmas o pies de herramientas." >&2
+  exit 1
+fi
