@@ -4,8 +4,8 @@ import com.verabank.transfer.web.ApiException;
 import com.verabank.transfer.web.RequestContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.net.URI;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -37,7 +37,8 @@ public class TransferController {
         if (outcome.replayed()) {
             return ResponseEntity.ok().header(REPLAYED_HEADER, "true").body(outcome.transfer());
         }
-        return ResponseEntity.status(HttpStatus.CREATED).body(outcome.transfer());
+        return ResponseEntity.created(URI.create("/api/v1/transfers/" + outcome.transfer().transferId()))
+                .body(outcome.transfer());
     }
 
     private static UUID parseKey(String value) {
