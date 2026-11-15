@@ -1,0 +1,72 @@
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+
+spring:
+  application:
+    name: transfer-service
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:verabank}
+    username: ${VERABANK_TRANSFER_USER:verabank_transfer}
+    password: ${VERABANK_TRANSFER_PASSWORD:}
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 5000
+  flyway:
+    # db/README.md: historial en flyway_transfer; core (V1–V8) y audit (V9–V12) en una corrida.
+    default-schema: flyway_transfer
+    schemas: flyway_transfer
+    create-schemas: true
+    locations: filesystem:${verabank.migrations-dir}/core,filesystem:${verabank.migrations-dir}/audit
+    validate-migration-naming: true
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    deserialization:
+      fail-on-null-for-primitives: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        linger.ms: 5
+        request.timeout.ms: 10000
+        delivery.timeout.ms: 120000
+        max.block.ms: 10000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    level: "%5p [cid=%X{correlation_id:-}] [client=%X{client_id:-}]"
+
+verabank:
+  # Directorio de db/migrations del monorepo; por defecto, relativo a transfer-service/.
+  migrations-dir: ${VERABANK_MIGRATIONS_DIR:../db/migrations}
+  # Claves por canal: "canal:clave,canal:clave". El canal es el client_id de la idempotencia.
+  api-keys: ${VERABANK_API_KEYS:}
+  saga:
+    # Una transferencia PENDING cuyo cierre falló se reanuda con un reintento de la misma
+    # clave pasado este plazo; antes, el reintento recibe 409 idempotency-in-progress.
+    resume-after: 30s
+  outbox:
+    topic: transfer.events.v1
+    relay-enabled: true
+    poll-interval-ms: 100
+    batch-size: 200
+    lock-key: 815002
+    send-timeout: 130s
