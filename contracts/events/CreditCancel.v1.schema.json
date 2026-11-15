@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/CreditCancel.v1.schema.json",
+  "title": "Cancelación del abono (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    }
+  },
+  "additionalProperties": true
+}

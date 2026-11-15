@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/FraudLabelConfirmed.v1.schema.json",
+  "title": "Etiqueta de fraude confirmada (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id",
+    "is_fraud",
+    "label_source"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "is_fraud": {
+      "type": "boolean"
+    },
+    "label_source": {
+      "type": "string",
+      "enum": [
+        "CHARGEBACK",
+        "ANALYST",
+        "SIMULATOR"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

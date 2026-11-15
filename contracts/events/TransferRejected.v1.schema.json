@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/TransferRejected.v1.schema.json",
+  "title": "Transferencia rechazada (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id",
+    "reason"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "INSUFFICIENT_FUNDS",
+        "RISK_BLOCK",
+        "ANALYST_REJECT",
+        "ACCOUNT_NOT_ACTIVE"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

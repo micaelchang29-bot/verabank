@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/CreditStatus.v1.schema.json",
+  "title": "Estado del abono según el rail (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id",
+    "state"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "CONFIRMED",
+        "REJECTED",
+        "CANCELLED",
+        "UNKNOWN"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

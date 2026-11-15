@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/TransferFailed.v1.schema.json",
+  "title": "Transferencia fallida (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id",
+    "reason",
+    "compensated"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "RAIL_REJECTED",
+        "RAIL_CANCELLED"
+      ]
+    },
+    "compensated": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": true
+}

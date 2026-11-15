@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/TransferHeld.v1.schema.json",
+  "title": "Transferencia retenida para revisión (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id",
+    "reason"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "FRAUD_REVIEW"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

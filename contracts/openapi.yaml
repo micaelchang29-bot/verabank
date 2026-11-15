@@ -1,0 +1,522 @@
+openapi: 3.1.0
+info:
+  title: VeraBank API
+  version: 1.0.0
+  description: >
+    API de transferencias, cuentas, alertas AML y scoring interno (docs/diseno.md §3.4).
+    Los montos viajan como cadena decimal. Los errores usan application/problem+json (RFC 9457).
+servers:
+  - url: http://localhost:8080
+    description: Local (transfer-service)
+tags:
+  - name: transfers
+  - name: accounts
+  - name: aml
+  - name: internal
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /api/v1/transfers:
+    post:
+      tags: [transfers]
+      operationId: createTransfer
+      summary: Crear transferencia
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransferRequest' }
+      responses:
+        '201':
+          description: Transferencia creada (primera vez).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '200':
+          description: Reintento con la misma clave y el mismo cuerpo; devuelve el estado actual.
+          headers:
+            Idempotent-Replayed:
+              description: Siempre `true` en un reintento.
+              schema: { type: string, enum: ['true'] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/AccountNotFound' }
+        '409': { $ref: '#/components/responses/IdempotencyInProgress' }
+        '422': { $ref: '#/components/responses/TransferUnprocessable' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/transfers/{id}:
+    get:
+      tags: [transfers]
+      operationId: getTransfer
+      summary: Consultar estado de una transferencia
+      parameters:
+        - $ref: '#/components/parameters/TransferId'
+      responses:
+        '200':
+          description: Estado actual.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/TransferNotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/transfers/{id}/review:
+    post:
+      tags: [transfers]
+      operationId: reviewTransfer
+      summary: Decisión del analista sobre una transferencia retenida
+      parameters:
+        - $ref: '#/components/parameters/TransferId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewRequest' }
+      responses:
+        '200':
+          description: Decisión aplicada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/TransferNotFound' }
+        '409': { $ref: '#/components/responses/ReviewNotPending' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/accounts/{id}:
+    get:
+      tags: [accounts]
+      operationId: getAccount
+      summary: Saldo y retenciones de una cuenta
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Cuenta.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/AccountNotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/aml/alerts:
+    get:
+      tags: [aml]
+      operationId: listAmlAlerts
+      summary: Cola de alertas AML
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/AlertStatus' }
+        - name: severity
+          in: query
+          schema: { $ref: '#/components/schemas/AlertSeverity' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          description: Valor `next_cursor` de la página anterior.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Página de alertas, de mayor a menor severidad y antigüedad.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AlertPage' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/aml/alerts/{id}:
+    patch:
+      tags: [aml]
+      operationId: updateAmlAlert
+      summary: Avanzar o cerrar una alerta AML
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlertUpdate' }
+      responses:
+        '200':
+          description: Alerta actualizada.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Alert' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/AlertNotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /internal/v1/scores:
+    post:
+      tags: [internal]
+      operationId: scoreTransfer
+      summary: Scoring de fraude (solo red interna)
+      description: >
+        Idempotente por `transfer_id`: un reintento devuelve el resultado ya guardado.
+        Sin API key; no se expone fuera de la red interna.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScoreRequest' }
+      responses:
+        '200':
+          description: Resultado del scoring.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScoreResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ModelNotLoaded' }
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Clave por canal; identifica el `client_id` de la idempotencia.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUID elegido por el canal; misma clave y mismo cuerpo, un solo débito.
+      schema: { type: string, format: uuid }
+    TransferId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  headers:
+    RetryAfter:
+      description: Segundos que debe esperar el cliente antes de reintentar.
+      schema: { type: integer, minimum: 0 }
+
+  schemas:
+    DecimalString:
+      type: string
+      pattern: '^[0-9]{1,16}(\.[0-9]{1,2})?$'
+      description: Monto como cadena decimal, nunca como número de coma flotante.
+      examples: ['1250.00']
+    Rail:
+      type: string
+      enum: [INTERNAL, EXTERNAL]
+    TransferType:
+      type: string
+      enum: [TRANSFER, CASH_OUT, PAYMENT, DEBIT]
+    TransferStatus:
+      type: string
+      enum: [PENDING, IN_REVIEW, PROCESSING, COMPLETED, REJECTED, FAILED]
+    Decision:
+      type: string
+      enum: [APPROVE, REVIEW, BLOCK]
+    AlertStatus:
+      type: string
+      enum: [OPEN, IN_REVIEW, ESCALATED, CLOSED_FALSE_POSITIVE, CLOSED_CONFIRMED]
+    AlertSeverity:
+      type: string
+      enum: [LOW, MEDIUM, HIGH]
+
+    TransferRequest:
+      type: object
+      required: [source_account_id, dest_country, rail, transfer_type, amount, currency, occurred_at]
+      properties:
+        source_account_id: { type: string, format: uuid }
+        dest_account_id:
+          type: string
+          format: uuid
+          description: Obligatorio si `rail` es INTERNAL.
+        dest_external_ref:
+          type: string
+          minLength: 1
+          description: Obligatorio si `rail` es EXTERNAL.
+        dest_country: { type: string, pattern: '^[A-Z]{2}$' }
+        rail: { $ref: '#/components/schemas/Rail' }
+        transfer_type: { $ref: '#/components/schemas/TransferType' }
+        amount: { $ref: '#/components/schemas/DecimalString' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        occurred_at:
+          type: string
+          format: date-time
+          description: Tiempo de negocio simulado de la solicitud.
+      allOf:
+        - if:
+            properties: { rail: { const: INTERNAL } }
+            required: [rail]
+          then: { required: [dest_account_id] }
+        - if:
+            properties: { rail: { const: EXTERNAL } }
+            required: [rail]
+          then: { required: [dest_external_ref] }
+
+    Transfer:
+      type: object
+      required: [transfer_id, status, source_account_id, dest_country, rail, transfer_type,
+                 amount, currency, occurred_at, created_at]
+      properties:
+        transfer_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/TransferStatus' }
+        source_account_id: { type: string, format: uuid }
+        dest_account_id: { type: [string, 'null'], format: uuid }
+        dest_external_ref: { type: [string, 'null'] }
+        dest_country: { type: string, pattern: '^[A-Z]{2}$' }
+        rail: { $ref: '#/components/schemas/Rail' }
+        transfer_type: { $ref: '#/components/schemas/TransferType' }
+        amount: { $ref: '#/components/schemas/DecimalString' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        fraud_decision:
+          anyOf:
+            - $ref: '#/components/schemas/Decision'
+            - type: 'null'
+        failure_reason: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+
+    ReviewRequest:
+      type: object
+      required: [decision, comment]
+      properties:
+        decision:
+          type: string
+          enum: [APPROVE, REJECT]
+          description: APPROVE reanuda la saga; REJECT la compensa.
+        comment: { type: string, minLength: 1, maxLength: 1000 }
+
+    Account:
+      type: object
+      required: [account_id, status, currency, balance, held, available]
+      properties:
+        account_id: { type: string, format: uuid }
+        status: { type: string, enum: [ACTIVE, BLOCKED, CLOSED] }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        balance: { $ref: '#/components/schemas/DecimalString' }
+        held:
+          allOf: [{ $ref: '#/components/schemas/DecimalString' }]
+          description: Suma retenida por transferencias abiertas.
+        available:
+          allOf: [{ $ref: '#/components/schemas/DecimalString' }]
+          description: balance - held.
+
+    Alert:
+      type: object
+      required: [alert_id, rule_code, rule_version, severity, status, subject_account_id,
+                 transfer_ids, total_amount, window_start, window_end, created_at]
+      properties:
+        alert_id: { type: string, format: uuid }
+        rule_code: { type: string }
+        rule_version: { type: integer, minimum: 1 }
+        rule_params: { type: object, additionalProperties: true }
+        severity: { $ref: '#/components/schemas/AlertSeverity' }
+        status: { $ref: '#/components/schemas/AlertStatus' }
+        subject_account_id: { type: string, format: uuid }
+        transfer_ids:
+          type: array
+          items: { type: string, format: uuid }
+          minItems: 1
+        total_amount: { $ref: '#/components/schemas/DecimalString' }
+        window_start: { type: string, format: date-time }
+        window_end: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        closed_at: { type: [string, 'null'], format: date-time }
+        closed_by: { type: [string, 'null'] }
+
+    AlertPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Alert' }
+        next_cursor: { type: [string, 'null'] }
+
+    AlertUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/AlertStatus' }
+        comment: { type: string, maxLength: 1000 }
+
+    ScoreRequest:
+      type: object
+      required: [transfer_id, source_ref, dest_ref, amount, currency, transfer_type, dest_country, occurred_at]
+      properties:
+        transfer_id: { type: string, format: uuid }
+        source_ref: { type: string, minLength: 1 }
+        dest_ref: { type: string, minLength: 1 }
+        amount: { $ref: '#/components/schemas/DecimalString' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        transfer_type: { $ref: '#/components/schemas/TransferType' }
+        dest_country: { type: string, pattern: '^[A-Z]{2}$' }
+        occurred_at: { type: string, format: date-time }
+
+    ScoreResponse:
+      type: object
+      required: [score, decision, model_version]
+      properties:
+        score: { type: number, minimum: 0, maximum: 1 }
+        decision: { $ref: '#/components/schemas/Decision' }
+        model_version: { type: string }
+
+    Problem:
+      type: object
+      description: Error según RFC 9457.
+      required: [type, title, status, detail, correlation_id]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        detail: { type: string }
+        correlation_id: { type: string, format: uuid }
+      additionalProperties: true
+
+  responses:
+    ValidationError:
+      description: 400 · Cuerpo inválido o falta `Idempotency-Key`. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: validation-error }
+                  status: { const: 400 }
+    Unauthorized:
+      description: 401 · API key ausente o inválida. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: unauthorized }
+                  status: { const: 401 }
+    AccountNotFound:
+      description: 404 · La cuenta no existe. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: account-not-found }
+                  status: { const: 404 }
+    TransferNotFound:
+      description: 404 · La transferencia no existe. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: transfer-not-found }
+                  status: { const: 404 }
+    AlertNotFound:
+      description: 404 · La alerta no existe. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: alert-not-found }
+                  status: { const: 404 }
+    IdempotencyInProgress:
+      description: 409 · Misma clave, solicitud original aún en curso. Reintentar tras `Retry-After`.
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: idempotency-in-progress }
+                  status: { const: 409 }
+    ReviewNotPending:
+      description: 409 · La transferencia ya no está en revisión. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: review-not-pending }
+                  status: { const: 409 }
+    TransferUnprocessable:
+      description: >
+        422 · `idempotency-key-reuse` (misma clave con cuerpo distinto), `insufficient-funds`,
+        `account-not-active` o `transfer-declined` (bloqueada por riesgo, sin detallar el motivo
+        al cliente). No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type:
+                    enum: [idempotency-key-reuse, insufficient-funds, account-not-active, transfer-declined]
+                  status: { const: 422 }
+    RateLimited:
+      description: 429 · Límite por canal excedido. Reintentar.
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: rate-limited }
+                  status: { const: 429 }
+    ServiceUnavailable:
+      description: 503 · Base de datos no disponible. Reintentar con la misma clave.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: service-unavailable }
+                  status: { const: 503 }
+    ModelNotLoaded:
+      description: 503 · El modelo no está cargado.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: model-not-loaded }
+                  status: { const: 503 }

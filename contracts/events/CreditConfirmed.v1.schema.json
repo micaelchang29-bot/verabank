@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/CreditConfirmed.v1.schema.json",
+  "title": "Abono confirmado por el rail (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id",
+    "rail_ref"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "rail_ref": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": true
+}

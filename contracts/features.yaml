@@ -1,0 +1,146 @@
+# Contrato de features de fraude (docs/diseno.md §5b).
+# Lo consumen ml/ (entrenamiento) y risk-service (servicio); cualquier cambio exige
+# regenerar golden.jsonl y pasar la prueba de paridad (T-13).
+version: 1
+
+# Convención de ventanas: cerradas por la izquierda y estrictamente anteriores a la
+# solicitud. Una ventana "24h" cubre [t - 24 h, t), con t = occurred_at de la solicitud;
+# las filas con occurred_at >= t nunca cuentan (T-14). "all" es todo el historial previo.
+# Origen: "request" (campos de la solicitud), "scoring_log.source" (consulta por
+# source_ref, ix_slog_source) y "scoring_log.dest" (consulta por dest_ref, ix_slog_dest).
+windows:
+  convention: "[t - w, t)"
+  clock: occurred_at
+
+sets:
+  A:
+    served: true
+    description: Conjunto servido. No usa saldos.
+  B:
+    served: false
+    description: >
+      Ablación. Se evalúa aparte; si acerca el PR-AUC a 1 es un artefacto del
+      simulador (el fraude vacía la cuenta) y no se sirve.
+
+features:
+  # --- Conjunto A · solicitud ---
+  - name: amount
+    set: A
+    type: float
+    window: none
+    origin: request
+    description: Monto de la solicitud.
+  - name: log_amount
+    set: A
+    type: float
+    window: none
+    origin: request
+    description: ln(1 + amount).
+  - name: type
+    set: A
+    type: categorical
+    window: none
+    origin: request
+    encoding: one-hot
+    categories: [TRANSFER, CASH_OUT, PAYMENT, DEBIT]
+    description: transfer_type de la solicitud, codificado one-hot.
+  - name: hour_sin
+    set: A
+    type: float
+    window: none
+    origin: request
+    description: sin(2π · hora_del_día / 24), hora UTC de occurred_at.
+  - name: hour_cos
+    set: A
+    type: float
+    window: none
+    origin: request
+    description: cos(2π · hora_del_día / 24), hora UTC de occurred_at.
+
+  # --- Conjunto A · destino, historial previo ---
+  - name: dst_in_count_24h
+    set: A
+    type: int
+    window: 24h
+    origin: scoring_log.dest
+    default: 0
+    description: Transferencias previas recibidas por el destino.
+  - name: dst_in_sum_24h
+    set: A
+    type: float
+    window: 24h
+    origin: scoring_log.dest
+    default: 0.0
+    description: Suma de los montos previos recibidos por el destino.
+  - name: dst_distinct_src_24h
+    set: A
+    type: int
+    window: 24h
+    origin: scoring_log.dest
+    default: 0
+    description: Orígenes distintos que enviaron al destino.
+  - name: dst_seen_before
+    set: A
+    type: bool
+    window: all
+    origin: scoring_log.dest
+    default: false
+    description: El destino aparece en alguna solicitud previa.
+  - name: dst_age_hours
+    set: A
+    type: float
+    window: all
+    origin: scoring_log.dest
+    default: 0.0
+    description: Horas desde la primera aparición del destino; 0 si no se ha visto.
+
+  # --- Conjunto A · origen, historial previo ---
+  - name: src_out_count_1h
+    set: A
+    type: int
+    window: 1h
+    origin: scoring_log.source
+    default: 0
+    description: Intentos previos del origen, incluidos los rechazados.
+  - name: src_out_count_24h
+    set: A
+    type: int
+    window: 24h
+    origin: scoring_log.source
+    default: 0
+    description: Intentos previos del origen, incluidos los rechazados.
+  - name: src_out_sum_24h
+    set: A
+    type: float
+    window: 24h
+    origin: scoring_log.source
+    default: 0.0
+    description: Suma de los montos de los intentos previos del origen.
+  - name: is_new_beneficiary
+    set: A
+    type: bool
+    window: all
+    origin: scoring_log.dest
+    default: true
+    description: El origen nunca había enviado a este destino.
+
+  # --- Conjunto B · ablación (no se sirve) ---
+  - name: src_balance_before
+    set: B
+    type: float
+    window: none
+    origin: request
+    description: Saldo del origen antes de la transferencia.
+  - name: amount_to_balance
+    set: B
+    type: float
+    window: none
+    origin: request
+    description: amount / src_balance_before.
+
+# Entradas que ninguna feature puede usar (fuga de etiqueta o regla disfrazada de dato).
+prohibited_inputs:
+  - newbalanceOrig
+  - oldbalanceDest
+  - newbalanceDest
+  - isFlaggedFraud

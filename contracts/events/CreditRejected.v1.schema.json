@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/CreditRejected.v1.schema.json",
+  "title": "Abono rechazado por el rail (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id",
+    "reason_code"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": true
+}

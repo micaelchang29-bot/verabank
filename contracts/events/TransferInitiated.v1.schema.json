@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/TransferInitiated.v1.schema.json",
+  "title": "Transferencia iniciada (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id",
+    "source_account_id",
+    "dest_country",
+    "rail",
+    "transfer_type",
+    "amount",
+    "currency"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source_account_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dest_account_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dest_external_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dest_country": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$"
+    },
+    "rail": {
+      "type": "string",
+      "enum": [
+        "INTERNAL",
+        "EXTERNAL"
+      ]
+    },
+    "transfer_type": {
+      "type": "string",
+      "enum": [
+        "TRANSFER",
+        "CASH_OUT",
+        "PAYMENT",
+        "DEBIT"
+      ]
+    },
+    "amount": {
+      "type": "string",
+      "pattern": "^[0-9]{1,16}(\\.[0-9]{1,2})?$",
+      "description": "Monto como cadena decimal, nunca como número de coma flotante."
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    }
+  },
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "rail": {
+            "const": "INTERNAL"
+          }
+        },
+        "required": [
+          "rail"
+        ]
+      },
+      "then": {
+        "required": [
+          "dest_account_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "rail": {
+            "const": "EXTERNAL"
+          }
+        },
+        "required": [
+          "rail"
+        ]
+      },
+      "then": {
+        "required": [
+          "dest_external_ref"
+        ]
+      }
+    }
+  ]
+}

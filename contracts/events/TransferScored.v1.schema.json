@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verabank/events/TransferScored.v1.schema.json",
+  "title": "Transferencia puntuada (payload)",
+  "type": "object",
+  "required": [
+    "transfer_id",
+    "score",
+    "decision",
+    "decision_source",
+    "model_version",
+    "latency_ms"
+  ],
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "APPROVE",
+        "REVIEW",
+        "BLOCK"
+      ]
+    },
+    "decision_source": {
+      "type": "string",
+      "enum": [
+        "MODEL",
+        "FALLBACK"
+      ]
+    },
+    "model_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "latency_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": true
+}
