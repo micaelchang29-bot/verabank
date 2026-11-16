@@ -7,8 +7,16 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-/** Base de las pruebas de integración: servicio real sobre PostgreSQL y Kafka en contenedores. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+/**
+ * Base de las pruebas de integración: servicio real sobre PostgreSQL y Kafka en contenedores.
+ *
+ * <p>El relay del outbox está apagado por defecto. Los contextos de Spring se cachean entre
+ * clases y comparten la base: un relay vivo en un contexto ajeno publicaría las filas del
+ * escenario de otra prueba. Las clases que necesitan el relay lo activan con
+ * {@link RelayEnabled} y cierran su contexto al terminar, de modo que solo hay uno a la vez.
+ */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "verabank.outbox.relay-enabled=false")
 public abstract class IntegrationTest {
 
     public static final String CLIENT_WEB = "web";

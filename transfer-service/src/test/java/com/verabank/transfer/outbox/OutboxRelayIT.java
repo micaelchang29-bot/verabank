@@ -9,6 +9,7 @@ import com.verabank.transfer.support.Bank;
 import com.verabank.transfer.support.Http;
 import com.verabank.transfer.support.Infra;
 import com.verabank.transfer.support.IntegrationTest;
+import com.verabank.transfer.support.RelayEnabled;
 import com.verabank.transfer.support.KafkaProbe;
 import java.sql.Connection;
 import java.sql.Statement;
@@ -34,6 +35,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.DockerClientFactory;
 
 /** Salida del relay del outbox: orden por outbox_id, un solo relay activo y caída de Kafka. */
+@RelayEnabled
 class OutboxRelayIT extends IntegrationTest {
 
     private static final String ORDER_TOPIC = "relay.order.v1";

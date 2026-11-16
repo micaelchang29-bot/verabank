@@ -15,6 +15,7 @@ import com.verabank.transfer.support.Contracts;
 import com.verabank.transfer.support.Http;
 import com.verabank.transfer.support.Infra;
 import com.verabank.transfer.support.IntegrationTest;
+import com.verabank.transfer.support.RelayEnabled;
 import com.verabank.transfer.support.KafkaProbe;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -29,7 +30,6 @@ import java.util.stream.Collectors;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -38,7 +38,7 @@ import org.springframework.transaction.PlatformTransactionManager;
  * event_type en contracts/events, lleva clave source_account_id y las cabeceras de §3.1.
  * El scorer se espía para producir también BLOCK y REVIEW, que el StubScorer nunca devuelve.
  */
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@RelayEnabled
 class EventContractIT extends IntegrationTest {
 
     private static final BigDecimal BLOCK_AMOUNT = new BigDecimal("66.66");

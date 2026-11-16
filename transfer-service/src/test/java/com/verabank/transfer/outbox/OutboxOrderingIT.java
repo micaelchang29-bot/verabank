@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.verabank.transfer.config.VerabankProperties;
 import com.verabank.transfer.support.Infra;
 import com.verabank.transfer.support.IntegrationTest;
+import com.verabank.transfer.support.RelayEnabled;
 import com.verabank.transfer.support.KafkaProbe;
 import java.sql.Connection;
 import java.sql.Statement;
@@ -30,7 +31,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
@@ -40,7 +40,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * <p>El lote se arma con el bloqueo consultivo retenido por otra conexión: así todos los
  * eventos entran en un mismo lote cuando se libera.
  */
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@RelayEnabled
 class OutboxOrderingIT extends IntegrationTest {
 
     private static final String ORDER_TOPIC = "relay.ordering.v1";
