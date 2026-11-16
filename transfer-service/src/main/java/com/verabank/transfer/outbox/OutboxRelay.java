@@ -1,5 +1,6 @@
 package com.verabank.transfer.outbox;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.verabank.transfer.config.Sql;
@@ -8,13 +9,21 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.InvalidRecordException;
+import org.apache.kafka.common.errors.RecordTooLargeException;
+import org.apache.kafka.common.errors.SerializationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -32,11 +41,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>Un solo relay activo: cada lote corre en una transacción que primero toma
  *       {@code pg_try_advisory_xact_lock}; si otra instancia lo tiene, el lote no hace nada.
  *       {@code FOR UPDATE SKIP LOCKED} es una segunda barrera.</li>
- *   <li>Orden por outbox_id: el lote se lee en ese orden y se envía en ese orden; el
- *       productor idempotente conserva el orden dentro de cada partición.</li>
- *   <li>Sin pérdidas: una fila solo se marca publicada cuando Kafka confirmó el envío
- *       ({@code acks=all}). Si un envío falla, esa fila y las siguientes de la misma clave
- *       quedan pendientes para el próximo lote, así el orden por clave no se rompe.</li>
+ *   <li>Orden por outbox_id: el lote se lee en ese orden y los eventos de una misma clave se
+ *       envían de uno en uno, esperando la confirmación de cada uno antes del siguiente.</li>
+ *   <li>Sin pérdidas ni duplicados: una fila solo se marca publicada cuando Kafka confirmó el
+ *       envío ({@code acks=all}). Ante el primer fallo de una clave no se envía ningún posterior
+ *       de esa clave: quedan pendientes y se reintentan en orden en el próximo lote.</li>
+ *   <li>Errores no reintentables (mensaje demasiado grande…): el evento va a {@code <tópico>.dlt}
+ *       (§3.1) y se marca publicado, para no bloquear la clave.</li>
  *   <li>Kafka caído: los envíos esperan dentro del productor hasta {@code delivery.timeout.ms},
  *       reintentando la misma secuencia idempotente, de modo que una caída más corta que ese
  *       plazo se recupera sin reenviar ni duplicar. La API sigue aceptando: los eventos esperan
@@ -109,33 +120,134 @@ public class OutboxRelay {
         } while (n >= config.batchSize());
     }
 
+    /**
+     * Envía el lote respetando el orden por clave: los eventos de una misma clave van de uno
+     * en uno, esperando la confirmación de cada uno antes de enviar el siguiente; las claves
+     * distintas avanzan en paralelo. Ante el primer fallo de una clave no se envía ningún
+     * posterior de esa clave, y solo se devuelven como publicados los confirmados.
+     */
     private List<Long> send(List<Pending> batch) {
         String emittedAt = Instant.now().truncatedTo(ChronoUnit.MICROS).toString();
-        List<CompletableFuture<SendResult<String, String>>> futures = new ArrayList<>(batch.size());
+        Map<String, List<Pending>> byKey = new LinkedHashMap<>();
         for (Pending p : batch) {
-            futures.add(sendOne(p, emittedAt));
+            byKey.computeIfAbsent(p.topic() + '\u0000' + p.key(), k -> new ArrayList<>()).add(p);
         }
-        List<Long> done = new ArrayList<>(batch.size());
-        Set<String> blockedKeys = new HashSet<>();
-        long timeoutMs = config.sendTimeout().toMillis();
-        for (int i = 0; i < batch.size(); i++) {
-            Pending p = batch.get(i);
-            String partitionKey = p.topic() + '\u0000' + p.key();
-            try {
-                futures.get(i).get(timeoutMs, TimeUnit.MILLISECONDS);
-                if (!blockedKeys.contains(partitionKey)) {
+        Queue<Long> done = new ConcurrentLinkedQueue<>();
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        List<CompletableFuture<Void>> chains = new ArrayList<>(byKey.size());
+        for (List<Pending> group : byKey.values()) {
+            chains.add(sendInOrder(group, 0, emittedAt, done, cancelled));
+        }
+        try {
+            CompletableFuture.allOf(chains.toArray(CompletableFuture[]::new))
+                    .get(config.sendTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            cancelled.set(true);   // ninguna cadena envía más; lo no confirmado se reintenta
+            log.warn("el lote del outbox no terminó en {}; lo no confirmado se reintentará", config.sendTimeout());
+        } catch (InterruptedException e) {
+            cancelled.set(true);
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            cancelled.set(true);
+            log.error("error inesperado enviando el lote del outbox", e);
+        }
+        List<Long> confirmed = new ArrayList<>(done);
+        confirmed.sort(Long::compare);
+        return confirmed;
+    }
+
+    private CompletableFuture<Void> sendInOrder(List<Pending> group, int index, String emittedAt,
+            Queue<Long> done, AtomicBoolean cancelled) {
+        if (index >= group.size() || cancelled.get()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        Pending p = group.get(index);
+        return sendOne(p, emittedAt).handle((result, error) -> {
+            if (error == null) {
+                done.add(p.outboxId());
+                return sendInOrder(group, index + 1, emittedAt, done, cancelled);
+            }
+            if (isNonRetriable(error)) {
+                // Reintentar no sirve: al <tópico>.dlt (§3.1) y se marca publicado, para no bloquear la clave.
+                return deadLetter(p, emittedAt, error).thenCompose(sent -> {
+                    if (!sent) {
+                        return CompletableFuture.<Void>completedFuture(null);   // se reintenta todo, en orden
+                    }
                     done.add(p.outboxId());
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                blockedKeys.add(partitionKey);
-            } catch (Exception e) {
-                blockedKeys.add(partitionKey);
-                log.warn("no se pudo publicar outbox_id={} event_id={} ({}): {}; se reintentará",
-                        p.outboxId(), p.eventId(), p.eventType(), rootMessage(e));
+                    return sendInOrder(group, index + 1, emittedAt, done, cancelled);
+                });
+            }
+            log.warn("no se pudo publicar outbox_id={} event_id={} ({}): {}; se reintentará y no se envía "
+                    + "ningún posterior de la misma clave", p.outboxId(), p.eventId(), p.eventType(),
+                    rootMessage(error));
+            return CompletableFuture.<Void>completedFuture(null);
+        }).thenCompose(next -> next);
+    }
+
+    /** Errores que un reintento no arregla: mensaje demasiado grande, registro inválido o no serializable. */
+    static boolean isNonRetriable(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof RecordTooLargeException || t instanceof InvalidRecordException
+                    || t instanceof SerializationException || t instanceof JsonProcessingException) {
+                return true;
             }
         }
-        return done;
+        return false;
+    }
+
+    /** Publica el evento en {@code <tópico>.dlt} (misma clave); {@code true} si Kafka lo confirmó. */
+    private CompletableFuture<Boolean> deadLetter(Pending p, String emittedAt, Throwable error) {
+        String reason = rootMessage(error);
+        log.error("outbox_id={} event_id={} ({}) no es publicable ({}); se envía a {}.dlt y se marca publicado",
+                p.outboxId(), p.eventId(), p.eventType(), reason, p.topic());
+        try {
+            ProducerRecord<String, String> record = new ProducerRecord<>(p.topic() + ".dlt", p.key(),
+                    dltValue(p, emittedAt, error));
+            record.headers()
+                    .add("event_id", bytes(p.eventId().toString()))
+                    .add("event_type", bytes(p.eventType()))
+                    .add("original_topic", bytes(p.topic()))
+                    .add("dlt_reason", bytes(reason.length() > 500 ? reason.substring(0, 500) : reason));
+            return kafka.send(record).handle((r, e) -> {
+                if (e != null) {
+                    log.warn("no se pudo enviar outbox_id={} al DLT ({}); se reintentará", p.outboxId(),
+                            rootMessage(e));
+                }
+                return e == null;
+            });
+        } catch (RuntimeException e) {
+            log.warn("no se pudo preparar el DLT de outbox_id={}: {}", p.outboxId(), rootMessage(e));
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    /**
+     * Valor del DLT: el sobre con su payload, salvo cuando el problema es el tamaño o el JSON
+     * (el DLT tampoco admitiría el mensaje): entonces solo los metadatos. El evento completo
+     * sigue en core.outbox, identificado por event_id.
+     */
+    private String dltValue(Pending p, String emittedAt, Throwable error) {
+        try {
+            ObjectNode envelope = (ObjectNode) mapper.readTree(p.envelope());
+            envelope.put("emitted_at", emittedAt);
+            boolean tooLarge = false;
+            for (Throwable t = error; t != null; t = t.getCause() == t ? null : t.getCause()) {
+                tooLarge |= t instanceof RecordTooLargeException;
+            }
+            if (tooLarge) {
+                envelope.set("payload", mapper.createObjectNode()
+                        .put("omitted", "payload demasiado grande; ver core.outbox")
+                        .put("outbox_id", p.outboxId())
+                        .put("payload_chars", p.envelope().length()));
+            }
+            return mapper.writeValueAsString(envelope);
+        } catch (Exception e) {
+            return mapper.createObjectNode()
+                    .put("omitted", "sobre no legible; ver core.outbox")
+                    .put("outbox_id", p.outboxId())
+                    .put("event_id", p.eventId().toString())
+                    .toString();
+        }
     }
 
     private CompletableFuture<SendResult<String, String>> sendOne(Pending p, String emittedAt) {

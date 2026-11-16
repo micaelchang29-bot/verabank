@@ -47,6 +47,12 @@ public final class KafkaProbe {
         }
     }
 
+    public static String headerOf(org.apache.kafka.clients.producer.ProducerRecord<String, String> record,
+            String name) {
+        Header h = record.headers().lastHeader(name);
+        return h == null ? null : new String(h.value(), StandardCharsets.UTF_8);
+    }
+
     public static String header(ConsumerRecord<String, String> record, String name) {
         Header h = record.headers().lastHeader(name);
         return h == null ? null : new String(h.value(), StandardCharsets.UTF_8);
