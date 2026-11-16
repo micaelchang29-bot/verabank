@@ -169,13 +169,14 @@ public class SagaRepository {
      * La saga vencida más antigua que no esté bloqueada por otra transacción (una por llamada: la
      * transacción del sondeo es una por saga).
      */
-    public Optional<SagaRow> nextDue() {
+    public Optional<SagaRow> nextDue(List<String> statuses) {
         return jdbc.sql("SELECT " + COLUMNS + """
                  FROM core.saga_state
-                WHERE wake_at <= now() AND status IN ('RUNNING', 'WAITING_REPLY', 'COMPENSATING')
+                WHERE wake_at <= now() AND status IN (:statuses)
                 ORDER BY wake_at
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED""")
+                .param("statuses", statuses)
                 .query(this::map)
                 .optional();
     }
