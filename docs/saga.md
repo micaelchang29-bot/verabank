@@ -137,3 +137,7 @@ Micrometer, visibles en `/actuator/metrics/<nombre>`.
 | T-08 | Inbox y §5: un solo par de asientos |
 | T-09 | §7: el sondeo reanuda `RUNNING` / `FUNDS_HELD` sin depender del cliente |
 | T-10 | Con Kafka caído la API acepta; el outbox se vacía en orden y `outbox.lag` crece y se recupera |
+
+## 10. Pendientes
+
+- **429 `rate-limited`.** El límite por canal del contrato (`429`, `Retry-After`) no está implementado: ninguna ruta responde 429 todavía. Lo cubrirá un filtro por `client_id` en una fase posterior; no afecta a la saga.

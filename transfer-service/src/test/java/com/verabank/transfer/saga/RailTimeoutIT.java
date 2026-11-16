@@ -210,4 +210,22 @@ class RailTimeoutIT extends IntegrationTest {
         assertThat(bank.reconcile()).containsExactly(0, 0);
         Events.assertAllValid(jdbc, id);
     }
+
+    @Test
+    void losComandosAlRailLlegaranPorKafkaConSuEsquemaYClaveTransferId() {
+        UUID id = externalTransfer("100.00");
+        await().atMost(Duration.ofSeconds(30)).until(() -> rail.count(id, "CreditCancel") >= 1);
+
+        List<RailDouble.Command> commands = rail.commandsFor(id);
+        assertThat(commands).extracting(RailDouble.Command::type).contains("CreditInstruction",
+                "CreditStatusQuery", "CreditCancel");
+        for (RailDouble.Command c : commands) {
+            assertThat(c.key()).as("clave transfer_id").isEqualTo(id.toString());
+            assertThat(c.envelope().path("aggregate_id").asText()).isEqualTo(id.toString());
+            assertThat(com.verabank.transfer.support.Contracts.envelopeErrors(c.envelope()))
+                    .as("sobre de %s", c.type()).isEmpty();
+            assertThat(com.verabank.transfer.support.Contracts.payloadErrors(c.type(), c.envelope().path("payload")))
+                    .as("payload de %s", c.type()).isEmpty();
+        }
+    }
 }
