@@ -190,6 +190,7 @@ public class TransferService {
             return t;   // otra solicitud ya la cerró
         }
         transfers.recordScore(transferId, score);
+        events.scored(t, score, correlationId);
         List<Runnable> trail = new ArrayList<>();
         TransferRow result = switch (score.decision()) {
             case BLOCK -> releaseAndReject(t, RejectionReason.RISK_BLOCK, correlationId, trail);

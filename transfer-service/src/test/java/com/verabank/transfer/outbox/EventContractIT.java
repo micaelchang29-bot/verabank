@@ -68,19 +68,19 @@ class EventContractIT extends IntegrationTest {
         Map<String, List<String>> expected = new LinkedHashMap<>();
 
         expected.put(create(http, Bank.internal(source, dest, "12.34"), 201),
-                List.of("TransferInitiated", "TransferCompleted"));
+                List.of("TransferInitiated", "TransferScored", "TransferCompleted"));
         expected.put(create(http, Bank.internal(source, dest, "5000.00"), 422),
                 List.of("TransferRejected"));
         expected.put(create(http, Bank.internal(blocked, dest, "1.00"), 422),
                 List.of("TransferRejected"));
         expected.put(create(http, Bank.internal(source, dest, BLOCK_AMOUNT.toPlainString()), 422),
-                List.of("TransferInitiated", "TransferRejected"));
+                List.of("TransferInitiated", "TransferScored", "TransferRejected"));
         expected.put(create(http, Bank.internal(source, dest, REVIEW_AMOUNT.toPlainString()), 201),
-                List.of("TransferInitiated", "TransferHeld"));
+                List.of("TransferInitiated", "TransferScored", "TransferHeld"));
         expected.put(create(http, """
                 {"source_account_id":"%s","dest_external_ref":"CCI-778899","dest_country":"CO","rail":"EXTERNAL",
                  "transfer_type":"PAYMENT","amount":"3.00","currency":"PEN","occurred_at":"2026-03-02T08:00:00Z"}"""
-                .formatted(source), 201), List.of("TransferInitiated"));
+                .formatted(source), 201), List.of("TransferInitiated", "TransferScored"));
 
         List<ConsumerRecord<String, String>> records = KafkaProbe.readUntil(Infra.TRANSFER_EVENTS,
                 rs -> typesByTransfer(rs).entrySet().containsAll(expected.entrySet()), Duration.ofSeconds(30));
@@ -105,7 +105,26 @@ class EventContractIT extends IntegrationTest {
             assertThat(KafkaProbe.header(r, "event_type")).isEqualTo(type);
             assertThat(KafkaProbe.header(r, "correlation_id")).isEqualTo(envelope.path("correlation_id").asText());
         }
-        assertThat(eventTypes).contains("TransferInitiated", "TransferCompleted", "TransferRejected", "TransferHeld");
+        assertThat(eventTypes).contains("TransferInitiated", "TransferScored", "TransferCompleted",
+                "TransferRejected", "TransferHeld");
+
+        // TransferScored lleva exactamente lo que se guardó en core.transfers.
+        for (ConsumerRecord<String, String> r : records) {
+            JsonNode envelope = mapper.readTree(r.value());
+            if (!"TransferScored".equals(envelope.path("event_type").asText())) {
+                continue;
+            }
+            JsonNode p = envelope.path("payload");
+            Map<String, Object> row = jdbc.sql("""
+                    SELECT fraud_score, fraud_decision, decision_source, model_version, scoring_latency_ms
+                    FROM core.transfers WHERE transfer_id = CAST(:t AS uuid)""")
+                    .param("t", p.path("transfer_id").asText()).query().singleRow();
+            assertThat(p.path("score").decimalValue()).isEqualByComparingTo((BigDecimal) row.get("fraud_score"));
+            assertThat(p.path("decision").asText()).isEqualTo(row.get("fraud_decision"));
+            assertThat(p.path("decision_source").asText()).isEqualTo(row.get("decision_source"));
+            assertThat(p.path("model_version").asText()).isEqualTo(row.get("model_version"));
+            assertThat(p.path("latency_ms").asInt()).isEqualTo(row.get("scoring_latency_ms"));
+        }
 
         // Cada transferencia completada por el servicio tiene su TransferCompleted en Kafka.
         List<String> completed = jdbc.sql("""

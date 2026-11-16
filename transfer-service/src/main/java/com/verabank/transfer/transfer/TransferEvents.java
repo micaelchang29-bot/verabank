@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.verabank.transfer.config.VerabankProperties;
 import com.verabank.transfer.outbox.OutboxWriter;
+import com.verabank.transfer.scoring.ScoreResult;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -28,6 +29,18 @@ public class TransferEvents {
 
     public void initiated(TransferRow t, UUID correlationId) {
         emit(t, "TransferInitiated", describe(t), correlationId);
+    }
+
+    /** Resultado del scoring (§3.3); se emite en tx2 justo después de guardar el score. */
+    public void scored(TransferRow t, ScoreResult score, UUID correlationId) {
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("transfer_id", t.transferId().toString());
+        payload.put("score", score.score().doubleValue());
+        payload.put("decision", score.decision().name());
+        payload.put("decision_source", score.source().name());
+        payload.put("model_version", score.modelVersion());
+        payload.put("latency_ms", score.latencyMs());
+        emit(t, "TransferScored", payload, correlationId);
     }
 
     public void completed(TransferRow t, UUID correlationId) {

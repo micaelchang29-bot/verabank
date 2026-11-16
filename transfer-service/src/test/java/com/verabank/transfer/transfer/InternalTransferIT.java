@@ -90,7 +90,7 @@ class InternalTransferIT extends IntegrationTest {
                 SELECT event_type, topic, message_key, aggregate_type, payload::text AS envelope
                 FROM core.outbox WHERE aggregate_id = :t ORDER BY outbox_id""")
                 .param("t", transferId).query().listOfRows();
-        assertThat(rows).extracting(m -> m.get("event_type")).containsExactly("TransferInitiated", "TransferCompleted");
+        assertThat(rows).extracting(m -> m.get("event_type")).containsExactly("TransferInitiated", "TransferScored", "TransferCompleted");
         for (Map<String, Object> row : rows) {
             assertThat(row.get("topic")).isEqualTo("transfer.events.v1");
             assertThat(row.get("message_key")).isEqualTo(source.toString());
@@ -98,7 +98,10 @@ class InternalTransferIT extends IntegrationTest {
             JsonNode envelope = mapper.readTree((String) row.get("envelope"));
             assertThat(envelope.path("correlation_id").asText()).isEqualTo(cid.toString());
             assertThat(envelope.path("aggregate_id").asText()).isEqualTo(transferId.toString());
-            assertThat(envelope.path("payload").path("amount").asText()).isEqualTo("10.00");
+            assertThat(envelope.path("payload").path("transfer_id").asText()).isEqualTo(transferId.toString());
+            if (!"TransferScored".equals(row.get("event_type"))) {   // §3.3: Scored no lleva el monto
+                assertThat(envelope.path("payload").path("amount").asText()).isEqualTo("10.00");
+            }
         }
     }
 
