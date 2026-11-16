@@ -5,7 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.verabank.transfer.config.Sql;
 import com.verabank.transfer.config.VerabankProperties;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -26,6 +31,7 @@ import org.apache.kafka.common.errors.RecordTooLargeException;
 import org.apache.kafka.common.errors.SerializationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
@@ -64,9 +70,23 @@ public class OutboxRelay {
     private final ObjectMapper mapper;
     private final TransactionTemplate tx;
     private final VerabankProperties.Outbox config;
+    private final Timer lag;
+    private final Counter dlt;
 
     public OutboxRelay(JdbcClient jdbc, KafkaTemplate<String, String> kafka, ObjectMapper mapper,
             PlatformTransactionManager txManager, VerabankProperties properties) {
+        this(jdbc, kafka, mapper, txManager, properties, new SimpleMeterRegistry());
+    }
+
+    @Autowired
+    public OutboxRelay(JdbcClient jdbc, KafkaTemplate<String, String> kafka, ObjectMapper mapper,
+            PlatformTransactionManager txManager, VerabankProperties properties, MeterRegistry meters) {
+        this.lag = Timer.builder("outbox.lag")
+                .description("published_at menos created_at, al confirmar la publicación")
+                .publishPercentileHistogram()
+                .serviceLevelObjectives(Duration.ofSeconds(1))
+                .register(meters);
+        this.dlt = Counter.builder("outbox.dlt").description("Eventos del outbox enviados al DLT").register(meters);
         this.jdbc = jdbc;
         this.kafka = kafka;
         this.mapper = mapper;
@@ -75,7 +95,8 @@ public class OutboxRelay {
         this.tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
-    private record Pending(long outboxId, UUID eventId, String topic, String key, String eventType, String envelope) {
+    private record Pending(long outboxId, UUID eventId, String topic, String key, String eventType, String envelope,
+            Instant createdAt) {
     }
 
     /** Publica un lote; devuelve cuántas filas quedaron marcadas como publicadas. */
@@ -89,14 +110,14 @@ public class OutboxRelay {
                 return 0;
             }
             List<Pending> batch = jdbc.sql("""
-                    SELECT outbox_id, event_id, topic, message_key, event_type, payload::text AS envelope
+                    SELECT outbox_id, event_id, topic, message_key, event_type, payload::text AS envelope, created_at
                     FROM core.outbox WHERE published_at IS NULL
                     ORDER BY outbox_id LIMIT :limit
                     FOR UPDATE SKIP LOCKED""")
                     .param("limit", config.batchSize())
                     .query((rs, i) -> new Pending(rs.getLong("outbox_id"), Sql.uuid(rs, "event_id"),
                             rs.getString("topic"), rs.getString("message_key"), rs.getString("event_type"),
-                            rs.getString("envelope")))
+                            rs.getString("envelope"), Sql.instant(rs, "created_at")))
                     .list();
             if (batch.isEmpty()) {
                 return 0;
@@ -164,6 +185,7 @@ public class OutboxRelay {
         Pending p = group.get(index);
         return sendOne(p, emittedAt).handle((result, error) -> {
             if (error == null) {
+                lag.record(Duration.between(p.createdAt(), Instant.now()));   // al confirmar la publicación
                 done.add(p.outboxId());
                 return sendInOrder(group, index + 1, emittedAt, done, cancelled);
             }
@@ -173,6 +195,7 @@ public class OutboxRelay {
                     if (!sent) {
                         return CompletableFuture.<Void>completedFuture(null);   // se reintenta todo, en orden
                     }
+                    dlt.increment();
                     done.add(p.outboxId());
                     return sendInOrder(group, index + 1, emittedAt, done, cancelled);
                 });

@@ -14,7 +14,6 @@ public class SagaMetrics {
     public final Counter conflictingReply;
     public final Counter inboxDuplicates;
     public final Counter inboxDlt;
-    public final Counter outboxDlt;
     public final Timer compensationDuration;
 
     public SagaMetrics(MeterRegistry meters) {
@@ -26,8 +25,6 @@ public class SagaMetrics {
                 .description("Respuestas repetidas del rail, sin efectos").register(meters);
         inboxDlt = Counter.builder("inbox.dlt")
                 .description("Mensajes de rail.replies.v1 enviados al DLT").register(meters);
-        outboxDlt = Counter.builder("outbox.dlt")
-                .description("Eventos del outbox enviados al DLT").register(meters);
         compensationDuration = Timer.builder("saga.compensation.duration")
                 .description("De recibir el rechazo o la cancelación a COMPENSATED").register(meters);
     }
