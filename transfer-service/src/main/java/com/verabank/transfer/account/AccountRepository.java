@@ -31,6 +31,15 @@ public class AccountRepository {
                 .optional();
     }
 
+    /** La cuenta de compensación (CLEARING) de la moneda: contrapartida de los abonos al rail. */
+    public Optional<AccountRow> findClearing(String currency) {
+        return jdbc.sql("SELECT " + COLUMNS + " FROM core.accounts WHERE account_type = 'CLEARING'"
+                        + " AND currency = :currency ORDER BY account_id LIMIT 1")
+                .param("currency", currency)
+                .query(AccountRepository::map)
+                .optional();
+    }
+
     /** Bloquea las cuentas en orden de account_id: dos cierres cruzados no se interbloquean. */
     public List<AccountRow> lockInOrder(UUID... accountIds) {
         List<UUID> ids = List.of(accountIds).stream().distinct().sorted(Comparator.naturalOrder()).toList();

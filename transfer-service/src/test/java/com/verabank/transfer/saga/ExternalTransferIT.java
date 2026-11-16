@@ -42,16 +42,9 @@ class ExternalTransferIT extends IntegrationTest {
         Scoring.blockAndReview(scorer);
     }
 
-    static String external(UUID source, String amount) {
-        return """
-                {"source_account_id":"%s","dest_external_ref":"PE-BCP-0012345678","dest_country":"PE",
-                 "rail":"EXTERNAL","transfer_type":"TRANSFER","amount":"%s","currency":"PEN",
-                 "occurred_at":"2026-03-01T10:15:30Z"}""".formatted(source, amount);
-    }
-
     @Test
     void unaTransferenciaExternaAprobadaQuedaEsperandoAlRailConSuInstruccionEnElOutbox() {
-        Http.Response r = http.postTransfer(KEY_WEB, UUID.randomUUID(), external(source, "120.00"));
+        Http.Response r = http.postTransfer(KEY_WEB, UUID.randomUUID(), Bank.external(source, "120.00"));
 
         assertThat(r.status()).isEqualTo(201);
         assertThat(r.json().path("status").asText()).isEqualTo("PROCESSING");
@@ -91,7 +84,7 @@ class ExternalTransferIT extends IntegrationTest {
 
     @Test
     void laRamaBlockLiberaLaRetencionYEmiteScoredYRejected() {
-        Http.Response r = http.postTransfer(KEY_WEB, UUID.randomUUID(), external(source, "66.66"));
+        Http.Response r = http.postTransfer(KEY_WEB, UUID.randomUUID(), Bank.external(source, "66.66"));
 
         assertThat(r.status()).isEqualTo(422);
         UUID id = jdbc.sql("SELECT transfer_id FROM core.transfers WHERE source_account_id = :s")
@@ -109,7 +102,7 @@ class ExternalTransferIT extends IntegrationTest {
 
     @Test
     void laRamaReviewRetieneSinWakeAtYEmiteScoredYHeld() {
-        Http.Response r = http.postTransfer(KEY_WEB, UUID.randomUUID(), external(source, "77.77"));
+        Http.Response r = http.postTransfer(KEY_WEB, UUID.randomUUID(), Bank.external(source, "77.77"));
 
         assertThat(r.status()).isEqualTo(201);
         assertThat(r.json().path("status").asText()).isEqualTo("IN_REVIEW");

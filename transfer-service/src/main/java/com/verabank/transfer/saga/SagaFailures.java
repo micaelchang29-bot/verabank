@@ -1,8 +1,8 @@
 package com.verabank.transfer.saga;
 
 import com.verabank.transfer.config.VerabankProperties;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
+import com.verabank.transfer.audit.AuditWriter;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -24,32 +24,41 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class SagaFailures {
 
     private static final Logger log = LoggerFactory.getLogger(SagaFailures.class);
+    static final String SYSTEM_ACTOR = "system:transfer-service";
 
     private final SagaRepository sagas;
     private final TransactionTemplate tx;
     private final VerabankProperties.Saga config;
-    private final Counter compensationFailed;
+    private final SagaMetrics metrics;
+    private final AuditWriter audit;
 
     public SagaFailures(SagaRepository sagas, PlatformTransactionManager txManager, VerabankProperties properties,
-            MeterRegistry meters) {
+            SagaMetrics metrics, AuditWriter audit) {
         this.sagas = sagas;
+        this.metrics = metrics;
+        this.audit = audit;
         this.config = properties.saga();
         this.tx = new TransactionTemplate(txManager);
         this.tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-        this.compensationFailed = Counter.builder("saga.compensation_failed")
-                .description("Pasos de la saga a COMPENSATION_FAILED").register(meters);
     }
 
     /** Registra el fallo; nunca lanza (la base puede no estar disponible: el error ya está en el log). */
     public Optional<SagaRepository.Failure> record(UUID sagaId, Throwable error) {
         try {
-            Optional<SagaRepository.Failure> failure = tx.execute(s -> sagas.recordFailure(sagaId, describe(error),
-                    config.backoffBase(), config.backoffMax(), config.maxAttempts()));
+            Optional<SagaRepository.Failure> failure = tx.execute(s -> {
+                Optional<SagaRepository.Failure> f = sagas.recordFailure(sagaId, describe(error),
+                        config.backoffBase(), config.backoffMax(), config.maxAttempts());
+                f.filter(SagaRepository.Failure::stopped).ifPresent(stopped -> audit.record(SYSTEM_ACTOR,
+                        "SAGA_COMPENSATION_FAILED", AuditWriter.ENTITY_TRANSFER, sagaId.toString(),
+                        UUID.randomUUID(), Map.of("step", stopped.step(), "attempts", stopped.attempt(),
+                                "last_error", describe(error))));
+                return f;
+            });
             if (failure != null && failure.isPresent()) {
                 SagaRepository.Failure f = failure.get();
                 if (f.stopped()) {
-                    compensationFailed.increment();
+                    metrics.compensationFailed.increment();
                     log.error("la saga {} pasa a COMPENSATION_FAILED en el paso {} tras {} fallos locales; los fondos "
                             + "siguen retenidos y requiere un operador (POST /internal/v1/sagas/{}/resume)",
                             sagaId, f.step(), f.attempt(), sagaId);

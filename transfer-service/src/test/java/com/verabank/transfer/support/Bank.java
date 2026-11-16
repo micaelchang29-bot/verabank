@@ -132,6 +132,13 @@ public final class Bank {
         return new long[] {unbalanced, orphanHolds};
     }
 
+    public static String external(UUID source, String amount) {
+        return """
+                {"source_account_id":"%s","dest_external_ref":"PE-BCP-0012345678","dest_country":"PE",
+                 "rail":"EXTERNAL","transfer_type":"TRANSFER","amount":"%s","currency":"PEN",
+                 "occurred_at":"2026-03-01T10:15:30Z"}""".formatted(source, amount);
+    }
+
     public static String internal(UUID source, UUID dest, String amount) {
         return """
                 {"source_account_id":"%s","dest_account_id":"%s","dest_country":"PE","rail":"INTERNAL",
