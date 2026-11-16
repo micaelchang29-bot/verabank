@@ -1,8 +1,7 @@
 # verabank-sim
 
-Simuladores de VeraBank en Python 3.12 (`uv`). Hoy solo existe el subcomando `rail`; el
-despachador (`verabank_sim/cli.py`, tabla `COMMANDS`) queda listo para añadir `chaos`, `replay` y
-`aml`.
+Simuladores de VeraBank en Python 3.12 (`uv`). Existen los subcomandos `rail` y `chaos`; el
+despachador (`verabank_sim/cli.py`, tabla `COMMANDS`) queda listo para añadir `replay` y `aml`.
 
 ```bash
 python -m verabank_sim <subcomando>      # dentro de simulator/: uv run python -m verabank_sim rail
@@ -87,8 +86,85 @@ Un comando que no valida va a `rail.commands.v1.dlt` (partición 0) con la causa
   perdida y la consulta de estado la revela.
 - El reloj de los retrasos es el de pared del proceso.
 
+## `chaos` y `make chaos-rail`: caos del rail de extremo a extremo
+
+`chaos` crea N transferencias EXTERNAL contra la API de transfer-service y comprueba lo que la API
+promete bajo carga y con un rail que falla. `make chaos-rail` lo rodea del resto: servicio, rail
+simulado y comprobaciones en la base y en Kafka. Corre solo en local; no está en la CI.
+
+```bash
+make chaos-rail REJECT=0.2 DUP=0.1 N=2000          # defaults de caos: SILENT=0.02 LOST=0.01 DELAY=20:300
+make chaos-rail REJECT=0.2 DUP=0.1 DUP_MODE=new-id SILENT=0.05 LOST=0.02
+make chaos-checks                                  # solo db/checks/chaos.sql, sobre lo que haya en la base
+```
+
+Requiere Docker (Postgres y Kafka del perfil core), Java 21, `uv` y `.env` con `VERABANK_API_KEYS`.
+
+### Parámetros de `make chaos-rail`
+
+| Variable | Defecto | Efecto |
+|---|---|---|
+| `REJECT` | `0` | `--reject-rate` del rail; además fija el % de `FAILED` esperado (±3 puntos) |
+| `DUP` | `0` | `--dup-rate` del rail |
+| `DUP_MODE` | `same-id` | `same-id` o `new-id` (ver `rail`) |
+| `SILENT` | `0.02` | `--silent-rate` del rail |
+| `LOST` | `0.01` | `--lost-rate` del rail |
+| `DELAY` | `20:300` | `--delay-ms` del rail |
+| `N` | `2000` | Transferencias a crear |
+
+Los defaults de `SILENT`, `LOST` y `DELAY` son los del caos y difieren de los de `make rail-sim`.
+`CONCURRENCY` (20) y `CHAOS_TIMEOUT` (180 s) se pueden fijar por entorno.
+
+### Qué hace, en orden
+
+1. Arranca o reinicia transfer-service (`scripts/up-core.sh`, que también carga la semilla) con
+   `SAGA_RAIL_REPLY_TIMEOUT=5s` y `SAGA_POLL_BACKOFF_BASE=2s`, para que los casos de rail callado
+   terminen en segundos (consulta a los 5 s, cancelación hacia los 19 s). **El servicio queda
+   corriendo con esos tiempos**; `make up-core` lo reinicia con los de siempre.
+2. Arranca `rail-sim` en segundo plano con `--ready-file` (estado SQLite propio, borrado en cada
+   corrida), espera a que esté listo y lo detiene al terminar, también si algo falla (`trap`).
+3. Ejecuta `chaos`, y después `make reconcile`, `make check-events` y `db/checks/chaos.sql`. Corren
+   las cuatro etapas aunque una falle; el objetivo termina con código distinto de 0 si cualquiera falló.
+
+### `chaos`
+
+```bash
+cd simulator && uv run python -m verabank_sim chaos --n 2000 --concurrency 20 --timeout 180 --reject-rate 0.2
+```
+
+La clave de API sale de la primera entrada de `VERABANK_API_KEYS` del entorno (`make chaos-rail` la
+exporta desde `.env`); no se imprime ni se registra. La URL es `http://localhost:$SERVER_PORT`
+(`--base-url`). Otras banderas: `--replay-rate` (0.05), `--reuse-rate` (0.01) y `--seed`.
+
+- **Orígenes y montos.** Cuentas semilla PREMIUM y PYME (19 a 30), montos de 1.00 a 10.00. Antes de
+  empezar lee el saldo disponible (`GET /api/v1/accounts/{id}`) y reparte las solicitudes sin
+  comprometer más del 90 % de ninguna cuenta, suponiendo que todas se completan. La semilla actual
+  alcanza para 2000 transferencias por corrida; si algún día no alcanzara, termina con código 2 y
+  pide una semilla adicional (con el saldo como transferencia desde CLEARING y sus asientos).
+- **Idempotencia.** Cada solicitud lleva una `Idempotency-Key` única. El 5 % se reenvía idéntica
+  tras la respuesta original: debe dar 200, `Idempotent-Replayed: true` y el mismo `transfer_id`. El
+  1 % (disjunto del anterior) reutiliza la clave con otro monto: debe dar 422 `idempotency-key-reuse`.
+- **Espera.** Consulta `GET /api/v1/transfers/{id}` hasta que todas estén en `COMPLETED`, `FAILED` o
+  `REJECTED`, o venza `--timeout` (contado desde el inicio).
+- **Éxito (código 0).** Todas las creaciones con 201; reenvíos y reusos como se esperan; ninguna
+  transferencia sin estado final; ninguna `REJECTED` (nada debe fallar por saldo ni por riesgo); y
+  `FAILED` a menos de 3 puntos del `REJECT` pedido. Los rechazos pedidos, las instrucciones perdidas
+  que acaban canceladas y los silencios que revelan un rechazo producen `FAILED`; con los defaults de
+  caos eso suma ≈ `REJECT` + `LOST`.
+
+### Comprobaciones posteriores
+
+| Comprobación | Falla si |
+|---|---|
+| `make reconcile` | `cuentas_descuadradas` o `retenciones_huerfanas` ≠ 0 |
+| `make check-events` | una `COMPLETED` no tiene `TransferCompleted`, o una `FAILED` no tiene `TransferFailed` con `compensated = true` en `transfer.events.v1` |
+| `db/checks/chaos.sql` (por `scripts/chaos-checks.sh`, con psql como `reconcile`) | hay sagas que no son `COMPLETED` ni `COMPENSATED`; una `COMPLETED` externa no tiene exactamente un asiento D en el origen y uno C en CLEARING; una `FAILED` tiene asientos; hay asientos duplicados por transferencia, cuenta, sentido y tipo; o el p99 de `saga_state.updated_at - payload.compensation_started_at` en las `COMPENSATED` por fallo del rail supera 60 s |
+
+Las comprobaciones de base y Kafka miran toda la base, no solo la última corrida: una saga
+atascada de antes también las hace fallar.
+
 ## Pruebas
 
-`uv run pytest` ejecuta las unitarias (el motor con reloj falso, sin Kafka). La integración lleva la
+`uv run pytest` ejecuta las unitarias (el motor con reloj falso, y `chaos` con un cliente HTTP falso; sin Kafka ni servicios). La integración lleva la
 marca `integration`, se pide con `-m integration` y **falla** si no hay Kafka: no se omite en
 silencio. Usa un grupo de consumo propio y lo borra al terminar.
