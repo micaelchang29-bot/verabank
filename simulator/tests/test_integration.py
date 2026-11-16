@@ -43,12 +43,13 @@ def bootstrap() -> str:
 def rail(bootstrap: str, tmp_path_factory: pytest.TempPathFactory):
     tmp = tmp_path_factory.mktemp("rail")
     ready, log_path = tmp / "ready", tmp / "rail.log"
+    group_id = f"rail-it-{uuid.uuid4()}"  # no interfiere con el grupo real
     with log_path.open("wb") as log:
         proc = subprocess.Popen(
             [
                 sys.executable, "-m", "verabank_sim", "rail",
                 "--bootstrap-servers", bootstrap,
-                "--group-id", f"rail-it-{uuid.uuid4()}",  # no interfiere con el grupo real
+                "--group-id", group_id,
                 "--offset-reset", "latest",
                 "--state-db", str(tmp / "rail.db"),
                 "--ready-file", str(ready),
@@ -70,6 +71,12 @@ def rail(bootstrap: str, tmp_path_factory: pytest.TempPathFactory):
             except subprocess.TimeoutExpired:
                 proc.kill()
                 pytest.fail("el rail no cerró con SIGTERM")
+            finally:
+                for future in AdminClient({"bootstrap.servers": bootstrap}).delete_consumer_groups([group_id]).values():
+                    try:
+                        future.result(timeout=10)
+                    except Exception:  # noqa: BLE001  # limpieza de mejor esfuerzo
+                        pass
 
 
 class Reader:
