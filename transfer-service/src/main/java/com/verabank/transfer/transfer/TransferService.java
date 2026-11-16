@@ -17,10 +17,12 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -166,12 +168,14 @@ public class TransferService {
                 pending.occurredAt()));
         try {
             return tx.execute(status -> applyDecision(pending.transferId(), score, correlationId));
-        } catch (RuntimeException e) {
+        } catch (DataAccessException | TransactionException e) {
+            // Solo fallos de datos: se reintentan. Una violación de invariante (IllegalStateException,
+            // etc.) no se disfraza de 503: sale como 500 internal-error.
             log.error("falló el cierre de la transferencia {}; queda PENDING con su retención para reanudarse",
                     pending.transferId(), e);
             try {
                 tx.executeWithoutResult(s -> sagas.recordError(pending.transferId(), e.toString()));
-            } catch (RuntimeException ignored) {
+            } catch (DataAccessException | TransactionException ignored) {
                 // la base puede no estar disponible; el error ya está en el log
             }
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "service-unavailable", "Servicio no disponible",
