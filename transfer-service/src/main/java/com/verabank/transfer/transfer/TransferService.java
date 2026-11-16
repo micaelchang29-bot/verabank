@@ -270,11 +270,22 @@ public class TransferService {
         if (!Boolean.TRUE.equals(claimed)) {
             throw new ApiException(HttpStatus.CONFLICT, "idempotency-in-progress", "Solicitud en curso",
                     "La solicitud original con esta Idempotency-Key aún está en curso.",
-                    Map.of("Retry-After", "1"));
+                    Map.of("Retry-After", Long.toString(retryAfterSeconds(existing.transferId()))));
         }
         log.info("reanudando la transferencia {} detenida en PENDING", existing.transferId());
         TransferRow closed = close(existing, correlationId);
         return new Outcome(TransferView.of(closed), true);
+    }
+
+    /**
+     * Cuándo tiene sentido reintentar: al vencer el wake_at de la saga, que es cuando un
+     * reintento puede reanudarla. Acotado a [1, resume-after] (un wake_at ausente o ya vencido
+     * por carrera da 1 s).
+     */
+    private long retryAfterSeconds(UUID transferId) {
+        long max = Math.max(1, resumeAfter.toSeconds());
+        long remaining = tx.execute(s -> sagas.secondsUntilWake(transferId).orElse(1L));
+        return Math.min(max, Math.max(1, remaining));
     }
 
     private static ApiException rejection(RejectionReason reason) {

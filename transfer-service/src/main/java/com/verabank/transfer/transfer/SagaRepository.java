@@ -50,6 +50,16 @@ public class SagaRepository {
                 .update() == 1;
     }
 
+    /** Segundos (redondeados hacia arriba) hasta el próximo wake_at de la saga, si lo tiene. */
+    public java.util.Optional<Long> secondsUntilWake(UUID sagaId) {
+        return jdbc.sql("""
+                SELECT CEIL(EXTRACT(EPOCH FROM (wake_at - now())))::bigint
+                FROM core.saga_state WHERE saga_id = :id AND wake_at IS NOT NULL""")
+                .param("id", sagaId)
+                .query(Long.class)
+                .optional();
+    }
+
     public void recordError(UUID sagaId, String error) {
         jdbc.sql("UPDATE core.saga_state SET last_error = :error, updated_at = now() WHERE saga_id = :id")
                 .param("id", sagaId)

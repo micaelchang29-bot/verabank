@@ -4,10 +4,10 @@ import com.verabank.transfer.config.VerabankProperties;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
-import java.util.Map;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -26,19 +26,23 @@ public class ApiKeyRegistry {
     private static final Pattern CLIENT_ID = Pattern.compile("[a-z0-9][a-z0-9_-]{0,63}");
     static final int MIN_KEY_LENGTH = 16;
 
-    private final Map<String, String> clientByKeyHash;
-
-    public ApiKeyRegistry(VerabankProperties properties) {
-        this.clientByKeyHash = parse(properties.apiKeys());
+    private record Entry(byte[] keyHash, String client) {
     }
 
-    static Map<String, String> parse(String spec) {
+    private final List<Entry> entries;
+
+    public ApiKeyRegistry(VerabankProperties properties) {
+        this.entries = parse(properties.apiKeys());
+    }
+
+    static List<Entry> parse(String spec) {
         if (spec == null || spec.isBlank()) {
             throw new IllegalStateException(
                     "verabank.api-keys (VERABANK_API_KEYS) está vacío: define al menos un canal como canal:clave");
         }
-        Map<String, String> result = new HashMap<>();
+        List<Entry> result = new ArrayList<>();
         Set<String> clients = new HashSet<>();
+        Set<String> hashes = new HashSet<>();
         int position = 0;
         for (String entry : spec.split(",")) {
             position++;
@@ -61,11 +65,13 @@ public class ApiKeyRegistry {
             if (!clients.add(client)) {
                 throw new IllegalStateException("verabank.api-keys: canal repetido " + client);
             }
-            if (result.put(sha256(key), client) != null) {
+            byte[] hash = sha256(key);
+            if (!hashes.add(HexFormat.of().formatHex(hash))) {
                 throw new IllegalStateException("verabank.api-keys: dos canales comparten clave");
             }
+            result.add(new Entry(hash, client));
         }
-        return Map.copyOf(result);
+        return List.copyOf(result);
     }
 
     /** Canal dueño de la clave, si la clave es válida. */
@@ -73,13 +79,21 @@ public class ApiKeyRegistry {
         if (presentedKey == null || presentedKey.isEmpty() || presentedKey.length() > 512) {
             return Optional.empty();
         }
-        return Optional.ofNullable(clientByKeyHash.get(sha256(presentedKey)));
+        byte[] presented = sha256(presentedKey);
+        // Se recorren todos los hashes con comparación en tiempo constante, sin salir en el
+        // primero que coincide: el tiempo no depende de cuál clave (ni de si alguna) es válida.
+        String match = null;
+        for (Entry entry : entries) {
+            if (MessageDigest.isEqual(entry.keyHash(), presented)) {
+                match = entry.client();
+            }
+        }
+        return Optional.ofNullable(match);
     }
 
-    private static String sha256(String value) {
+    private static byte[] sha256(String value) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+            return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
