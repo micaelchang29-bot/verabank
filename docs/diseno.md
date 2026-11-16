@@ -268,6 +268,7 @@ Cada payload tiene su archivo en `contracts/events/<EventType>.v1.schema.json`. 
 | `GET /api/v1/accounts/{id}` | Saldo y retenciones | `200` |
 | `GET /api/v1/aml/alerts`, `PATCH /api/v1/aml/alerts/{id}` | Cola y cierre de alertas | `200` |
 | `POST /internal/v1/scores` | Scoring (solo red interna) | `200 {score, decision, model_version}` |
+| `POST /internal/v1/sagas/{id}/resume` | Reanudación operativa de una saga detenida (solo red interna, con API key) | `200` |
 
 Errores en `application/problem+json` (RFC 9457) con `type`, `title`, `status`, `detail` y `correlation_id`.
 
@@ -278,6 +279,7 @@ Errores en `application/problem+json` (RFC 9457) con `type`, `title`, `status`, 
 | 404 | `account-not-found`, `transfer-not-found` | Recurso inexistente | No |
 | 409 | `idempotency-in-progress` | Misma clave, solicitud original aún en curso | Sí, con `Retry-After` |
 | 409 | `review-not-pending` | Decisión sobre una transferencia que ya no está en revisión | No |
+| 409 | `saga-not-resumable` | Reanudación de una saga que no está en COMPENSATION_FAILED | No |
 | 422 | `idempotency-key-reuse` | Misma clave con cuerpo distinto | No |
 | 422 | `insufficient-funds` | Saldo disponible menor que el monto | No |
 | 422 | `account-not-active` | Cuenta bloqueada o cerrada | No |
