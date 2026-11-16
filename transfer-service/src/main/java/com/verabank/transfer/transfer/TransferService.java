@@ -148,7 +148,7 @@ public class TransferService {
             Map<String, Object> detail = detail(TransferStatus.IN_REVIEW, result.status(), result, null);
             detail.put("decision", decision.name());
             detail.put("comment", comment);
-            audit.record(actor, "TRANSFER_REVIEWED", AuditWriter.ENTITY_TRANSFER, transferId.toString(),
+            audit.record("channel:" + actor, "TRANSFER_REVIEWED", AuditWriter.ENTITY_TRANSFER, transferId.toString(),
                     correlationId, detail);
         });
         trail.forEach(Runnable::run);   // auditoría al final: ver AuditWriter

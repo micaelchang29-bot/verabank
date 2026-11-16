@@ -86,7 +86,7 @@ class AnalystReviewIT extends IntegrationTest {
                        detail->>'from_status' AS from_status, detail->>'to_status' AS to_status
                 FROM audit.audit_log WHERE entity_id = :t AND action = 'TRANSFER_REVIEWED'""")
                 .param("t", id.toString()).query().singleRow();
-        assertThat(audit).containsEntry("actor", CLIENT_MOBILE).containsEntry("decision", "APPROVE")
+        assertThat(audit).containsEntry("actor", "channel:" + CLIENT_MOBILE).containsEntry("decision", "APPROVE")
                 .containsEntry("comment", "cliente verificado por teléfono")
                 .containsEntry("from_status", "IN_REVIEW").containsEntry("to_status", "COMPLETED");
         assertThat(bank.reconcile()).containsExactly(0, 0);
@@ -128,7 +128,7 @@ class AnalystReviewIT extends IntegrationTest {
         assertThat(Events.outbox(jdbc, id).get(3).payload().path("reason").asText()).isEqualTo("ANALYST_REJECT");
         assertThat(jdbc.sql("SELECT actor || ':' || (detail->>'decision') FROM audit.audit_log "
                 + "WHERE entity_id = :t AND action = 'TRANSFER_REVIEWED'").param("t", id.toString())
-                .query(String.class).single()).isEqualTo("web:REJECT");
+                .query(String.class).single()).isEqualTo("channel:web:REJECT");
         assertThat(bank.reconcile()).containsExactly(0, 0);
         Events.assertAllValid(jdbc, id);
     }
