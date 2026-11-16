@@ -69,16 +69,23 @@ class CloseFailureIT extends IntegrationTest {
         Http.Response early = http.postTransfer(KEY_WEB, key, body);
         assertThat(early.status()).isEqualTo(409);
         assertThat(early.json().path("type").asText()).isEqualTo("idempotency-in-progress");
-        assertThat(Long.parseLong(early.header("Retry-After"))).as("Retry-After hasta el wake_at").isBetween(1L, 2L);
+        // Solicitud recién creada: wake_at está a resume-after (2 s en estas pruebas).
+        assertThat(Long.parseLong(early.header("Retry-After"))).as("recién creada").isBetween(1L, 2L);
 
-        // El Retry-After sale de wake_at de la saga y se acota a resume-after (2 s en estas pruebas):
-        // con wake_at a una hora vista, el valor es 2, no el "1" fijo de antes.
+        // Retry-After = clamp(wake_at - ahora, 1, 5). Extremo inferior: wake_at a punto de vencer.
         String sagaOf = "(SELECT transfer_id FROM core.transfers WHERE client_id = :c AND idempotency_key = :k)";
+        jdbc.sql("UPDATE core.saga_state SET wake_at = now() + interval '1 second' WHERE saga_id = " + sagaOf)
+                .param("c", CLIENT_WEB).param("k", key).update();
+        Http.Response soon = http.postTransfer(KEY_WEB, key, body);
+        assertThat(soon.status()).isEqualTo(409);
+        assertThat(soon.header("Retry-After")).as("wake_at a punto de vencer").isEqualTo("1");
+
+        // Extremo superior: wake_at lejano (una hora) no pide esperar más de 5 s.
         jdbc.sql("UPDATE core.saga_state SET wake_at = now() + interval '1 hour' WHERE saga_id = " + sagaOf)
                 .param("c", CLIENT_WEB).param("k", key).update();
         Http.Response far = http.postTransfer(KEY_WEB, key, body);
         assertThat(far.status()).isEqualTo(409);
-        assertThat(far.header("Retry-After")).isEqualTo("2");
+        assertThat(far.header("Retry-After")).as("wake_at lejano").isEqualTo("5");
         jdbc.sql("UPDATE core.saga_state SET wake_at = now() WHERE saga_id = " + sagaOf)
                 .param("c", CLIENT_WEB).param("k", key).update();
         UUID transferId = jdbc.sql("SELECT transfer_id FROM core.transfers WHERE client_id = :c AND idempotency_key = :k")

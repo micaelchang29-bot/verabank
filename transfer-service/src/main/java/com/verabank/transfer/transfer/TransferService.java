@@ -277,15 +277,22 @@ public class TransferService {
         return new Outcome(TransferView.of(closed), true);
     }
 
+    static final long RETRY_AFTER_MIN_SECONDS = 1;
+    static final long RETRY_AFTER_MAX_SECONDS = 5;
+
     /**
      * Cuándo tiene sentido reintentar: al vencer el wake_at de la saga, que es cuando un
-     * reintento puede reanudarla. Acotado a [1, resume-after] (un wake_at ausente o ya vencido
-     * por carrera da 1 s).
+     * reintento puede reanudarla. {@code clamp(wake_at - ahora, 1, 5)} segundos: el tope
+     * evita pedir esperas largas a quien reintenta una solicitud que puede estar a punto de
+     * terminar; el mínimo, que un wake_at ausente o a punto de vencer dé 1 s.
      */
     private long retryAfterSeconds(UUID transferId) {
-        long max = Math.max(1, resumeAfter.toSeconds());
-        long remaining = tx.execute(s -> sagas.secondsUntilWake(transferId).orElse(1L));
-        return Math.min(max, Math.max(1, remaining));
+        long remaining = tx.execute(s -> sagas.secondsUntilWake(transferId).orElse(RETRY_AFTER_MIN_SECONDS));
+        return clampRetryAfter(remaining);
+    }
+
+    static long clampRetryAfter(long remainingSeconds) {
+        return Math.min(RETRY_AFTER_MAX_SECONDS, Math.max(RETRY_AFTER_MIN_SECONDS, remainingSeconds));
     }
 
     private static ApiException rejection(RejectionReason reason) {
