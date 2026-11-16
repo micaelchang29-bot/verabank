@@ -18,7 +18,10 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** Exige {@code X-API-Key} en {@code /api/**}; sin clave válida responde 401 unauthorized. */
+/**
+ * Exige {@code X-API-Key} en {@code /api/**} y en {@code /internal/**} (la reanudación operativa de
+ * sagas); sin clave válida responde 401 unauthorized.
+ */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class ApiKeyFilter extends OncePerRequestFilter {
@@ -37,7 +40,8 @@ public class ApiKeyFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI().substring(request.getContextPath().length());
-        return !(path.equals("/api") || path.startsWith("/api/"));
+        return !(path.equals("/api") || path.startsWith("/api/")
+                || path.equals("/internal") || path.startsWith("/internal/"));
     }
 
     @Override

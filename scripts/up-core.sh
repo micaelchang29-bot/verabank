@@ -30,6 +30,7 @@ env -u POSTGRES_PASSWORD -u VERABANK_RISK_PASSWORD -u VERABANK_BI_PASSWORD \
 POSTGRES_HOST=localhost \
 KAFKA_BOOTSTRAP_SERVERS="localhost:${KAFKA_EXTERNAL_PORT:-29092}" \
 VERABANK_MIGRATIONS_DIR="$ROOT/db/migrations" \
+VERABANK_CONTRACTS_DIR="$ROOT/contracts" \
   nohup java -jar "$SERVICE_DIR/target/transfer-service.jar" >"$LOG_FILE" 2>&1 &
 echo $! >"$PID_FILE"
 

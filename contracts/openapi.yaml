@@ -213,6 +213,41 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ModelNotLoaded' }
 
+  /internal/v1/sagas/{id}/resume:
+    post:
+      tags: [internal]
+      operationId: resumeSaga
+      summary: Reanudación operativa de una saga detenida (solo red interna)
+      description: >
+        Devuelve una saga en `COMPENSATION_FAILED` al estado en que se detuvo (`payload.resume_status`),
+        con `attempt` en 0 y `wake_at` ahora. `id` es el `transfer_id`. Reanuda lo que falló, no la
+        causa: si el fallo persiste, la saga vuelve a `COMPENSATION_FAILED` tras `saga.max-attempts`
+        intentos. Deja auditoría `SAGA_RESUMED`.
+      parameters:
+        - $ref: '#/components/parameters/TransferId'
+      responses:
+        '200':
+          description: Saga reanudada; estado resultante.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [saga_id, status, current_step, attempt, wake_at, version, updated_at]
+                properties:
+                  saga_id: { type: string, format: uuid }
+                  status: { type: string }
+                  current_step: { type: string }
+                  attempt: { type: integer, minimum: 0 }
+                  wake_at: { type: [string, 'null'], format: date-time }
+                  version: { type: integer }
+                  updated_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '409': { $ref: '#/components/responses/SagaNotResumable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -489,6 +524,16 @@ components:
               - $ref: '#/components/schemas/Problem'
               - properties:
                   type: { const: review-not-pending }
+                  status: { const: 409 }
+    SagaNotResumable:
+      description: 409 · La saga no está en `COMPENSATION_FAILED`. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: saga-not-resumable }
                   status: { const: 409 }
     TransferUnprocessable:
       description: >
