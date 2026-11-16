@@ -30,8 +30,13 @@ cada migración queda como propietario de su esquema. Ningún rol tiene privileg
 esquema de otro. `verabank_bi` solo lee lo que cree el rol de arranque, es decir, `analytics`.
 
 Quedan sin crear, por no tener DDL en §4: `risk.transfer_facts`, `risk.aml_rules`,
-`risk.country_risk`, la inbox de `risk`, `analytics.credit_scores`,
-`analytics.drift_metrics` y `analytics.v_transfer_outcomes` (fase 5).
+`risk.country_risk`, la inbox de `risk`, `analytics.credit_scores` y
+`analytics.drift_metrics`.
+
+`analytics.v_transfer_outcomes` sí tiene DDL en §4, pero se crea en la fase 5: la vista
+cruza `core` (`transfers`, `accounts`, `customers`) y `risk` (`fraud_labels`), así que solo
+puede crearse cuando ambos esquemas existan, con el rol de arranque, que es quien crea
+`analytics`.
 
 ## Datos semilla
 

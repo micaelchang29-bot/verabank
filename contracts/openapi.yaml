@@ -48,9 +48,11 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/AccountNotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '409': { $ref: '#/components/responses/IdempotencyInProgress' }
         '422': { $ref: '#/components/responses/TransferUnprocessable' }
         '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /api/v1/transfers/{id}:
@@ -68,7 +70,9 @@ paths:
               schema: { $ref: '#/components/schemas/Transfer' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/TransferNotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /api/v1/transfers/{id}/review:
@@ -92,8 +96,10 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/TransferNotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '409': { $ref: '#/components/responses/ReviewNotPending' }
         '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /api/v1/accounts/{id}:
@@ -114,7 +120,9 @@ paths:
               schema: { $ref: '#/components/schemas/Account' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/AccountNotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /api/v1/aml/alerts:
@@ -144,7 +152,10 @@ paths:
               schema: { $ref: '#/components/schemas/AlertPage' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /api/v1/aml/alerts/{id}:
@@ -171,7 +182,9 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/AlertNotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /internal/v1/scores:
@@ -195,6 +208,9 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ScoreResponse' }
         '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ModelNotLoaded' }
 
 components:
@@ -510,6 +526,36 @@ components:
               - properties:
                   type: { const: service-unavailable }
                   status: { const: 503 }
+    InternalError:
+      description: 500 · Error inesperado del servidor; consultar los logs con el `correlation_id`.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: internal-error }
+                  status: { const: 500 }
+    NotFound:
+      description: 404 · La ruta no existe. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: not-found }
+                  status: { const: 404 }
+    MethodNotAllowed:
+      description: 405 · El método HTTP no está permitido en esta ruta. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: method-not-allowed }
+                  status: { const: 405 }
     ModelNotLoaded:
       description: 503 · El modelo no está cargado.
       content:

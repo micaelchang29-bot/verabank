@@ -2,6 +2,7 @@ package com.verabank.transfer.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.verabank.transfer.support.Contracts;
 import com.verabank.transfer.support.Http;
 import com.verabank.transfer.support.IntegrationTest;
 import java.util.Map;
@@ -89,6 +90,19 @@ class ApiEdgeIT extends IntegrationTest {
         assertThat(r.status()).isEqualTo(404);
         assertThat(r.header("Content-Type")).startsWith("application/problem+json");
         assertThat(r.json().path("correlation_id").asText()).isEqualTo(r.header("X-Correlation-Id"));
+        assertThat(r.json().path("type").asText()).isEqualTo("not-found");
+        assertThat(Contracts.openApiErrors("Problem", r.json())).isEmpty();
+    }
+
+    @Test
+    void metodoNoPermitidoEs405MethodNotAllowedEnProblemJson() {
+        Http.Response r = http.send("DELETE", "/api/v1/transfers", Map.of("X-API-Key", KEY_WEB), null);
+
+        assertThat(r.status()).isEqualTo(405);
+        assertThat(r.header("Content-Type")).startsWith("application/problem+json");
+        assertThat(r.json().path("type").asText()).isEqualTo("method-not-allowed");
+        assertThat(r.json().path("correlation_id").asText()).isEqualTo(r.header("X-Correlation-Id"));
+        assertThat(Contracts.openApiErrors("Problem", r.json())).isEmpty();
     }
 
     @Test

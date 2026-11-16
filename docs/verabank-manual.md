@@ -1,6 +1,6 @@
 # VeraBank — Manual de construcción
 
-Lista de tareas en orden de ejecución. Complementa a `verabank-diseno.md` y no repite su contenido.
+Lista de tareas en orden de ejecución. Complementa a `docs/diseno.md` y no repite su contenido.
 
 **Convenciones**
 

@@ -47,6 +47,7 @@ class InvariantFailureIT extends IntegrationTest {
         assertThat(r.status()).isEqualTo(500);
         assertThat(r.header("Content-Type")).startsWith("application/problem+json");
         assertThat(r.json().path("type").asText()).isEqualTo("internal-error");
+        assertThat(com.verabank.transfer.support.Contracts.openApiErrors("Problem", r.json())).isEmpty();
         assertThat(r.json().path("detail").asText()).doesNotContain("invariante rota");
         assertThat(r.json().path("correlation_id").asText()).isNotBlank();
         // tx2 se revirtió: sin asientos, saldo intacto, retención ligada a la transferencia PENDING.
