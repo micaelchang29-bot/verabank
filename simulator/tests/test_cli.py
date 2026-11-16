@@ -13,13 +13,13 @@ def test_parse_delay():
             parse_delay(bad)
 
 
-def test_el_despachador_solo_conoce_rail_y_aplica_defaults():
+def test_el_despachador_conoce_rail_y_chaos_y_aplica_defaults():
     args = cli.build_parser().parse_args(["rail"])
     assert (args.reject_rate, args.delay_ms, args.dup_rate, args.dup_mode) == (0.0, (20, 200), 0.0, "same-id")
     assert (args.silent_rate, args.lost_rate, args.seed) == (0.0, 0.0, 42)
     assert str(args.state_db).endswith("simulator/.state/rail.db")
     with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(["chaos"])
+        cli.build_parser().parse_args(["replay"])
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args([])
 

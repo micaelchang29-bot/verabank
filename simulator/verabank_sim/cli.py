@@ -1,6 +1,6 @@
 """Despachador de subcomandos: ``python -m verabank_sim <subcomando> ...``.
 
-Para añadir un subcomando (``chaos``, ``replay``, ``aml``) basta con registrarlo en
+Para añadir un subcomando (``replay``, ``aml``) basta con registrarlo en
 ``COMMANDS`` con un módulo que exponga ``add_arguments(parser)`` y ``run(args) -> int``.
 """
 
@@ -15,6 +15,7 @@ from collections.abc import Sequence
 # nombre -> (módulo, descripción)
 COMMANDS: dict[str, tuple[str, str]] = {
     "rail": ("verabank_sim.rail.cli", "rail interbancario simulado (consume rail.commands.v1)"),
+    "chaos": ("verabank_sim.chaos.cli", "carga de transferencias EXTERNAL con reenvíos y reusos de clave"),
 }
 
 
