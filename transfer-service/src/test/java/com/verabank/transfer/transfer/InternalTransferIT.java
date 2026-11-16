@@ -132,6 +132,28 @@ class InternalTransferIT extends IntegrationTest {
         assertThat(brokenLinks).isZero();
     }
 
+    /**
+     * Atomicidad: el cambio de estado y su fila de auditoría se confirman en la misma
+     * transacción, es decir, con el mismo xmin. Una auditoría en otra transacción (p. ej.
+     * REQUIRES_NEW) tendría otro xmin aunque el pool no se agote.
+     */
+    @Test
+    void laTransferenciaCompletadaYSuAuditoriaComparteXmin() {
+        UUID source = bank.account("500.00");
+        UUID dest = bank.account("0");
+        Http.Response r = http.postTransfer(KEY_WEB, UUID.randomUUID(), Bank.internal(source, dest, "10.00"));
+        UUID transferId = UUID.fromString(r.json().path("transfer_id").asText());
+
+        String transferXmin = jdbc.sql("SELECT xmin::text FROM core.transfers WHERE transfer_id = :t")
+                .param("t", transferId).query(String.class).single();
+        String auditXmin = jdbc.sql("""
+                SELECT xmin::text FROM audit.audit_log
+                WHERE entity_type = 'TRANSFER' AND entity_id = :t AND action = 'TRANSFER_COMPLETED'""")
+                .param("t", transferId.toString()).query(String.class).single();
+
+        assertThat(auditXmin).as("xmin de TRANSFER_COMPLETED frente al de core.transfers").isEqualTo(transferXmin);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
         // monto como número JSON, no como cadena decimal
