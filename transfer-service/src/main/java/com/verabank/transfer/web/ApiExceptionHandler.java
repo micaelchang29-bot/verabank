@@ -4,18 +4,15 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataAccessResourceFailureException;
-import org.springframework.dao.QueryTimeoutException;
-import org.springframework.dao.TransientDataAccessException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.lang.Nullable;
-import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.TransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -45,12 +42,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return validation("El parámetro '" + ex.getName() + "' no tiene un formato válido.", request);
     }
 
-    @ExceptionHandler({CannotGetJdbcConnectionException.class, CannotCreateTransactionException.class,
-            DataAccessResourceFailureException.class, QueryTimeoutException.class,
-            TransientDataAccessException.class})
+    /** Cualquier fallo de acceso a datos o de transacción es 503 reintentable (§3.4). */
+    @ExceptionHandler({DataAccessException.class, TransactionException.class})
     ResponseEntity<ProblemDetail> handleDatabaseDown(Exception ex, HttpServletRequest request) {
-        log.error("base de datos no disponible: {}", ex.getMessage());
-        return respond(HttpStatus.SERVICE_UNAVAILABLE, new HttpHeaders(), Problems.of(HttpStatus.SERVICE_UNAVAILABLE,
+        log.error("base de datos no disponible o con error: {}", ex.getMessage());
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.RETRY_AFTER, "1");
+        return respond(HttpStatus.SERVICE_UNAVAILABLE, headers, Problems.of(HttpStatus.SERVICE_UNAVAILABLE,
                 "service-unavailable", "Servicio no disponible",
                 "La base de datos no está disponible; reintenta con la misma Idempotency-Key.",
                 RequestContext.correlationId(request)));

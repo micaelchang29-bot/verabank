@@ -175,7 +175,8 @@ public class TransferService {
                 // la base puede no estar disponible; el error ya está en el log
             }
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "service-unavailable", "Servicio no disponible",
-                    "La transferencia no pudo completarse ahora; reintenta con la misma Idempotency-Key.");
+                    "La transferencia no pudo completarse ahora; reintenta con la misma Idempotency-Key.",
+                    Map.of("Retry-After", "1"));
         }
     }
 

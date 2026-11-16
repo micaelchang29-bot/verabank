@@ -62,6 +62,7 @@ class CloseFailureIT extends IntegrationTest {
         Http.Response failed = http.postTransfer(KEY_WEB, key, body);
 
         assertThat(failed.status()).isEqualTo(503);
+        assertThat(failed.header("Retry-After")).isNotNull();
         assertThat(failed.json().path("type").asText()).isEqualTo("service-unavailable");
 
         // Enseguida, antes de vencer el plazo de reanudación, el reintento informa que sigue en curso.
@@ -114,7 +115,9 @@ class CloseFailureIT extends IntegrationTest {
             UUID key = UUID.randomUUID();
             Http.Response failed = http.postTransfer(KEY_WEB, key, Bank.internal(source, dest, "80.00"));
 
-            assertThat(failed.status()).isGreaterThanOrEqualTo(500);
+            assertThat(failed.status()).isEqualTo(503);
+            assertThat(failed.header("Retry-After")).isNotNull();
+            assertThat(failed.json().path("type").asText()).isEqualTo("service-unavailable");
             assertThat(bank.countTransfers(CLIENT_WEB, key)).as("tx1 se revirtió entera").isZero();
             assertThat(bank.held(source)).isEqualByComparingTo("0");
             assertThat(bank.reconcile()).containsExactly(0, 0);
