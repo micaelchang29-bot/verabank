@@ -89,6 +89,7 @@ def run(args: argparse.Namespace) -> int:
         raise SystemExit("--n, --concurrency y --timeout deben ser positivos")
     if args.replay_rate + args.reuse_rate > 1.0:
         raise SystemExit("--replay-rate más --reuse-rate no puede superar 1")
+    logging.getLogger("httpx").setLevel(logging.WARNING)   # una línea INFO por solicitud ahogaría el informe
     seed = args.seed if args.seed is not None else random.SystemRandom().randrange(2**32)
     rng = random.Random(seed)
     api = HttpApi(args.base_url, api_key_from_env(), args.concurrency)

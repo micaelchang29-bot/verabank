@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -43,3 +43,18 @@ test-rail: ## Pruebas unitarias del simulador (sin Kafka)
 
 test-rail-it: ## Integración del rail con Kafka real (requiere make up-core)
 	@cd simulator && uv run pytest -m integration
+
+# Caos del rail (simulator/README.md). Sus valores por defecto (SILENT=0.02, LOST=0.01, DELAY=20:300)
+# difieren de los de rail-sim: solo cuenta un valor dado por el usuario (línea de comandos o entorno).
+N ?= 2000
+DUP_MODE ?= same-id
+CHAOS_SILENT = $(if $(filter command line environment override,$(origin SILENT)),$(SILENT),0.02)
+CHAOS_LOST = $(if $(filter command line environment override,$(origin LOST)),$(LOST),0.01)
+CHAOS_DELAY = $(if $(filter command line environment override,$(origin DELAY)),$(DELAY),20:300)
+
+chaos-checks: ## Comprobaciones de db/checks/chaos.sql (sagas finales, asientos, p99 de compensación)
+	@scripts/chaos-checks.sh
+
+chaos-rail: ## Caos: make chaos-rail REJECT=0.2 DUP=0.1 N=2000 [DUP_MODE= SILENT= LOST= DELAY=]
+	@REJECT=$(REJECT) DUP=$(DUP) N=$(N) DUP_MODE=$(DUP_MODE) SILENT=$(CHAOS_SILENT) LOST=$(CHAOS_LOST) \
+	  DELAY=$(CHAOS_DELAY) scripts/chaos-rail.sh
