@@ -8,6 +8,7 @@ import com.verabank.transfer.scoring.FraudScorer;
 import com.verabank.transfer.scoring.ScoreRequest;
 import com.verabank.transfer.scoring.ScoreResult;
 import com.verabank.transfer.web.ApiException;
+import com.verabank.transfer.web.DbErrors;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -169,14 +170,18 @@ public class TransferService {
         try {
             return tx.execute(status -> applyDecision(pending.transferId(), score, correlationId));
         } catch (DataAccessException | TransactionException e) {
-            // Solo fallos de datos: se reintentan. Una violación de invariante (IllegalStateException,
-            // etc.) no se disfraza de 503: sale como 500 internal-error.
+            // Solo fallos de datos. En ambos casos tx2 se revirtió y la transferencia queda PENDING
+            // con su retención, para reanudarse. Una violación de invariante (IllegalStateException,
+            // etc.) no pasa por aquí: sale como 500 internal-error.
             log.error("falló el cierre de la transferencia {}; queda PENDING con su retención para reanudarse",
                     pending.transferId(), e);
             try {
                 tx.executeWithoutResult(s -> sagas.recordError(pending.transferId(), e.toString()));
             } catch (DataAccessException | TransactionException ignored) {
                 // la base puede no estar disponible; el error ya está en el log
+            }
+            if (!DbErrors.isTransient(e)) {
+                throw e;   // permanente: 500 internal-error; un reintento repetiría el fallo
             }
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "service-unavailable", "Servicio no disponible",
                     "La transferencia no pudo completarse ahora; reintenta con la misma Idempotency-Key.",

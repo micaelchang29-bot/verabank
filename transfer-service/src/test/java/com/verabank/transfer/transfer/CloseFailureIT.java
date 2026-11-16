@@ -35,27 +35,45 @@ class CloseFailureIT extends IntegrationTest {
         bank = new Bank(jdbc, txManager);
         source = bank.account("300.00");
         dest = bank.account("0");
+    }
+
+    /** El abono al destino falla dentro de tx2 con el SQLSTATE dado (40001 transitorio, 23514 permanente). */
+    private void failCredit(String sqlState) {
         jdbc.sql("""
                 CREATE OR REPLACE FUNCTION core.test_fail_credit() RETURNS trigger LANGUAGE plpgsql AS $$
                 BEGIN
                   IF NEW.direction = 'C' AND NEW.account_id = '%s'::uuid THEN
-                    RAISE EXCEPTION 'fallo inyectado en el abono';
+                    RAISE EXCEPTION 'fallo inyectado en el abono' USING ERRCODE = '%s';
                   END IF;
                   RETURN NEW;
-                END $$""".formatted(dest)).update();
+                END $$""".formatted(dest, sqlState)).update();
         jdbc.sql("""
                 CREATE TRIGGER test_fail_credit BEFORE INSERT ON core.transactions
                 FOR EACH ROW EXECUTE FUNCTION core.test_fail_credit()""").update();
+    }
+
+    /** La retención falla dentro de tx1, ya insertada la transferencia, con el SQLSTATE dado. */
+    private void failHold(String sqlState) {
+        jdbc.sql("""
+                CREATE OR REPLACE FUNCTION core.test_fail_hold() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'fallo inyectado en la retención' USING ERRCODE = '%s'; END $$"""
+                .formatted(sqlState)).update();
+        jdbc.sql("""
+                CREATE TRIGGER test_fail_hold BEFORE UPDATE OF held ON core.accounts
+                FOR EACH ROW WHEN (NEW.held > OLD.held) EXECUTE FUNCTION core.test_fail_hold()""").update();
     }
 
     @AfterEach
     void removeFault() {
         jdbc.sql("DROP TRIGGER IF EXISTS test_fail_credit ON core.transactions").update();
         jdbc.sql("DROP FUNCTION IF EXISTS core.test_fail_credit()").update();
+        jdbc.sql("DROP TRIGGER IF EXISTS test_fail_hold ON core.accounts").update();
+        jdbc.sql("DROP FUNCTION IF EXISTS core.test_fail_hold()").update();
     }
 
     @Test
-    void unFalloEnElCierreNoDejaRetencionesHuerfanasYElReintentoLoReanuda() {
+    void unFalloTransitorioEnElCierreNoDejaRetencionesHuerfanasYElReintentoLoReanuda() {
+        failCredit("40001");   // serialization_failure: transitorio
         UUID key = UUID.randomUUID();
         String body = Bank.internal(source, dest, "80.00");
 
@@ -122,27 +140,57 @@ class CloseFailureIT extends IntegrationTest {
     }
 
     @Test
-    void unFalloAlRetenerNoDejaNada() {
-        // La base rechaza la retención dentro de tx1, después de insertar la transferencia.
-        jdbc.sql("""
-                CREATE OR REPLACE FUNCTION core.test_fail_credit() RETURNS trigger LANGUAGE plpgsql AS $$
-                BEGIN RAISE EXCEPTION 'fallo inyectado en la retención'; END $$""").update();
-        jdbc.sql("""
-                CREATE TRIGGER test_fail_hold BEFORE UPDATE OF held ON core.accounts
-                FOR EACH ROW WHEN (NEW.held > OLD.held) EXECUTE FUNCTION core.test_fail_credit()""").update();
-        try {
-            UUID key = UUID.randomUUID();
-            Http.Response failed = http.postTransfer(KEY_WEB, key, Bank.internal(source, dest, "80.00"));
+    void unFalloTransitorioAlRetenerEs503ConRetryAfterYNoDejaNada() {
+        failHold("40001");   // serialization_failure: transitorio
+        UUID key = UUID.randomUUID();
 
-            assertThat(failed.status()).isEqualTo(503);
-            assertThat(failed.header("Retry-After")).isNotNull();
-            assertThat(failed.json().path("type").asText()).isEqualTo("service-unavailable");
-            assertThat(bank.countTransfers(CLIENT_WEB, key)).as("tx1 se revirtió entera").isZero();
-            assertThat(bank.held(source)).isEqualByComparingTo("0");
-            assertThat(bank.reconcile()).containsExactly(0, 0);
-        } finally {
-            jdbc.sql("DROP TRIGGER IF EXISTS test_fail_hold ON core.accounts").update();
-        }
+        Http.Response failed = http.postTransfer(KEY_WEB, key, Bank.internal(source, dest, "80.00"));
+
+        assertThat(failed.status()).isEqualTo(503);
+        assertThat(failed.header("Retry-After")).isNotNull();
+        assertThat(failed.json().path("type").asText()).isEqualTo("service-unavailable");
+        assertThat(bank.countTransfers(CLIENT_WEB, key)).as("tx1 se revirtió entera").isZero();
+        assertThat(bank.held(source)).isEqualByComparingTo("0");
+        assertThat(bank.reconcile()).containsExactly(0, 0);
+    }
+
+    @Test
+    void unFalloPermanenteAlRetenerEs500InternalErrorSinRetryAfter() {
+        failHold("23514");   // check_violation: permanente
+        UUID key = UUID.randomUUID();
+
+        Http.Response failed = http.postTransfer(KEY_WEB, key, Bank.internal(source, dest, "80.00"));
+
+        assertThat(failed.status()).isEqualTo(500);
+        assertThat(failed.header("Retry-After")).as("un reintento repetiría el fallo").isNull();
+        assertThat(failed.header("Content-Type")).startsWith("application/problem+json");
+        assertThat(failed.json().path("type").asText()).isEqualTo("internal-error");
+        assertThat(failed.json().path("detail").asText()).doesNotContain("fallo inyectado");
+        assertThat(bank.countTransfers(CLIENT_WEB, key)).as("tx1 se revirtió entera").isZero();
+        assertThat(bank.held(source)).isEqualByComparingTo("0");
+        assertThat(bank.reconcile()).containsExactly(0, 0);
+    }
+
+    @Test
+    void unFalloPermanenteEnElCierreEs500PeroLaRetencionSigueLigadaALaTransferencia() {
+        failCredit("23514");   // check_violation: permanente
+        UUID key = UUID.randomUUID();
+
+        Http.Response failed = http.postTransfer(KEY_WEB, key, Bank.internal(source, dest, "80.00"));
+
+        assertThat(failed.status()).isEqualTo(500);
+        assertThat(failed.header("Retry-After")).isNull();
+        assertThat(failed.json().path("type").asText()).isEqualTo("internal-error");
+        UUID transferId = jdbc.sql("SELECT transfer_id FROM core.transfers WHERE client_id = :c AND idempotency_key = :k")
+                .param("c", CLIENT_WEB).param("k", key).query(UUID.class).single();
+        // tx2 se revirtió: la transferencia sigue PENDING con su retención, sin asientos ni huérfanas.
+        assertThat(status(transferId)).isEqualTo("PENDING");
+        assertThat(bank.countEntries(transferId, "D")).isZero();
+        assertThat(bank.balance(source)).isEqualByComparingTo("300.00");
+        assertThat(bank.held(source)).isEqualByComparingTo("80.00");
+        assertThat(bank.reconcile()).containsExactly(0, 0);
+        assertThat(jdbc.sql("SELECT last_error FROM core.saga_state WHERE saga_id = :t")
+                .param("t", transferId).query(String.class).single()).contains("fallo inyectado");
     }
 
     private String status(UUID transferId) {

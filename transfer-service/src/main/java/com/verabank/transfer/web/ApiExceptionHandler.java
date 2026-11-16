@@ -42,10 +42,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return validation("El parámetro '" + ex.getName() + "' no tiene un formato válido.", request);
     }
 
-    /** Cualquier fallo de acceso a datos o de transacción es 503 reintentable (§3.4). */
+    /**
+     * Errores de base de datos (§3.4): los transitorios (conexión, timeout, serialización) son
+     * 503 service-unavailable con Retry-After; el resto (integridad, SQL inválido, no
+     * clasificados) son 500 internal-error, porque reintentar no los arregla.
+     */
     @ExceptionHandler({DataAccessException.class, TransactionException.class})
-    ResponseEntity<ProblemDetail> handleDatabaseDown(Exception ex, HttpServletRequest request) {
-        log.error("base de datos no disponible o con error: {}", ex.getMessage());
+    ResponseEntity<ProblemDetail> handleDatabaseError(Exception ex, HttpServletRequest request) {
+        if (!DbErrors.isTransient(ex)) {
+            return handleUnexpected(ex, request);
+        }
+        log.error("base de datos no disponible: {}", ex.getMessage());
         HttpHeaders headers = new HttpHeaders();
         headers.add(HttpHeaders.RETRY_AFTER, "1");
         return respond(HttpStatus.SERVICE_UNAVAILABLE, headers, Problems.of(HttpStatus.SERVICE_UNAVAILABLE,
