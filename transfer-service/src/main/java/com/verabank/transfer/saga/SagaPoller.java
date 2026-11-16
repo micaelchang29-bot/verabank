@@ -117,7 +117,7 @@ public class SagaPoller {
 
     /** Dentro de la transacción de la saga: toma la siguiente vencida y ejecuta su paso. */
     private Step pickAndRun() {
-        Optional<SagaRow> due = sagas.nextDue(List.of(SagaStates.RUNNING, SagaStates.COMPENSATING));
+        Optional<SagaRow> due = sagas.nextDue(List.of(SagaStates.RUNNING, SagaStates.WAITING_REPLY, SagaStates.COMPENSATING));
         if (due.isEmpty()) {
             return null;
         }
@@ -128,6 +128,10 @@ public class SagaPoller {
                     // FUNDS_HELD: reclamar con arrendamiento; el score y tx2 van fuera de esta transacción.
                     Optional<Long> version = sagas.claim(saga.sagaId(), config.resumeAfter());
                     yield new Step(saga.sagaId(), version.orElse(null));
+                }
+                case SagaStates.WAITING_REPLY -> {
+                    railSaga.pollRail(saga);   // S11 a S13
+                    yield new Step(saga.sagaId(), null);
                 }
                 case SagaStates.COMPENSATING -> {
                     railSaga.compensate(saga, UUID.randomUUID());   // S10

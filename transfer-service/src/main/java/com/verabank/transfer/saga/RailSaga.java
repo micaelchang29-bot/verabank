@@ -3,6 +3,7 @@ package com.verabank.transfer.saga;
 import com.verabank.transfer.account.AccountRepository;
 import com.verabank.transfer.account.AccountRow;
 import com.verabank.transfer.audit.AuditWriter;
+import com.verabank.transfer.config.VerabankProperties;
 import com.verabank.transfer.transfer.LedgerRepository;
 import com.verabank.transfer.transfer.TransferAudit;
 import com.verabank.transfer.transfer.TransferEvents;
@@ -55,11 +56,14 @@ public class RailSaga {
     private final AuditWriter audit;
     private final SagaMetrics metrics;
     private final SagaFailures failures;
+    private final RailEvents railEvents;
+    private final VerabankProperties.Saga config;
     private final TransactionTemplate tx;
 
     public RailSaga(TransferRepository transfers, AccountRepository accounts, LedgerRepository ledger,
             SagaRepository sagas, TransferEvents events, AuditWriter audit, SagaMetrics metrics,
-            SagaFailures failures, PlatformTransactionManager txManager) {
+            SagaFailures failures, RailEvents railEvents, VerabankProperties properties,
+            PlatformTransactionManager txManager) {
         this.transfers = transfers;
         this.accounts = accounts;
         this.ledger = ledger;
@@ -68,6 +72,8 @@ public class RailSaga {
         this.audit = audit;
         this.metrics = metrics;
         this.failures = failures;
+        this.railEvents = railEvents;
+        this.config = properties.saga();
         this.tx = new TransactionTemplate(txManager);
         this.tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
@@ -180,6 +186,50 @@ public class RailSaga {
         if (startedAt != null) {
             afterCommit(() -> metrics.compensated(Duration.between(startedAt, Instant.now())));
         }
+    }
+
+    /**
+     * El rail no respondió a tiempo (S11 a S13). Pregunta por el estado del abono y, tras
+     * {@code saga.cancel-after-polls} consultas sin respuesta concluyente, pide la cancelación y la
+     * repite con backoff. Nunca compensa: solo una respuesta explícita del rail lo hace, y un rail
+     * callado no consume {@code attempt}.
+     */
+    public void pollRail(SagaRow saga) {
+        TransferRow t = transfers.find(saga.sagaId()).orElseThrow();
+        require(t, TransferStatus.PROCESSING);
+        UUID correlationId = UUID.randomUUID();
+        if (SagaStates.CREDIT_REQUESTED.equals(saga.currentStep())) {
+            long polls = saga.payloadLong("polls");
+            if (polls < config.cancelAfterPolls()) {
+                // S11: la espera ya se cuenta con polls incrementado.
+                transitionOrConflict(saga, SagaStates.CREDIT_REQUESTED, SagaStates.WAITING_REPLY,
+                        backoff(config.pollBackoffBase(), config.pollBackoffMax(), polls + 1),
+                        Map.of("polls", polls + 1));
+                railEvents.creditStatusQuery(t, correlationId);
+            } else {
+                // S12: sin respuesta concluyente tras las consultas, se pide la cancelación.
+                transitionOrConflict(saga, SagaStates.CANCEL_REQUESTED, SagaStates.WAITING_REPLY,
+                        config.pollBackoffBase(), Map.of("cancels", 1));
+                railEvents.creditCancel(t, correlationId);
+                audit.record(SYSTEM_ACTOR, "SAGA_CANCEL_REQUESTED", AuditWriter.ENTITY_TRANSFER,
+                        t.transferId().toString(), correlationId,
+                        TransferAudit.detail(TransferStatus.PROCESSING, TransferStatus.PROCESSING, t,
+                                "RAIL_SILENT"));
+            }
+        } else if (SagaStates.CANCEL_REQUESTED.equals(saga.currentStep())) {
+            long cancels = saga.payloadLong("cancels") + 1;   // S13
+            transitionOrConflict(saga, SagaStates.CANCEL_REQUESTED, SagaStates.WAITING_REPLY,
+                    backoff(config.pollBackoffBase(), config.pollBackoffMax(), cancels), Map.of("cancels", cancels));
+            railEvents.creditCancel(t, correlationId);
+        } else {
+            throw new IllegalStateException("paso de espera desconocido: " + saga.currentStep());
+        }
+    }
+
+    /** {@code min(base · 2^(n−1), max)}. */
+    static Duration backoff(Duration base, Duration max, long n) {
+        Duration d = base.multipliedBy(1L << Math.min(Math.max(n - 1, 0), 30));
+        return d.compareTo(max) > 0 ? max : d;
     }
 
     private void transitionOrConflict(SagaRow saga, String step, String status, Duration wakeIn,
