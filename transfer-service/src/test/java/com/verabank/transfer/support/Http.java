@@ -52,6 +52,15 @@ public final class Http {
         return send("POST", "/api/v1/transfers", headers, body);
     }
 
+    public Response review(String apiKey, UUID transferId, String body) {
+        return send("POST", "/api/v1/transfers/" + transferId + "/review",
+                apiKey == null ? Map.of() : Map.of("X-API-Key", apiKey), body);
+    }
+
+    public Response post(String apiKey, String path) {
+        return send("POST", path, apiKey == null ? Map.of() : Map.of("X-API-Key", apiKey), null);
+    }
+
     public Response get(String apiKey, String path) {
         return send("GET", path, apiKey == null ? Map.of() : Map.of("X-API-Key", apiKey), null);
     }

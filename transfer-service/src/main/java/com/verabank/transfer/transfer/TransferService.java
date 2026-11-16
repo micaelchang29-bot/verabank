@@ -112,6 +112,54 @@ public class TransferService {
         return new Outcome(TransferView.of(closed), false);
     }
 
+    /**
+     * Decisión del analista sobre una transferencia retenida (S6 y S7). Solo sobre {@code IN_REVIEW}:
+     * la transición se condiciona al estado y a la versión de la saga, de modo que con dos analistas a
+     * la vez uno recibe 200 y el otro 409. APPROVE reanuda como S4 o S5; REJECT libera la retención.
+     * La auditoría {@code TRANSFER_REVIEWED} va en la misma transacción; el actor es el client_id del canal.
+     */
+    public TransferView review(UUID transferId, ReviewDecision decision, String comment, String actor,
+            UUID correlationId) {
+        TransferRow reviewed = tx.execute(status -> applyReview(transferId, decision, comment, actor, correlationId));
+        return TransferView.of(reviewed);
+    }
+
+    private TransferRow applyReview(UUID transferId, ReviewDecision decision, String comment, String actor,
+            UUID correlationId) {
+        TransferRow current = transfers.find(transferId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,
+                "transfer-not-found", "Transferencia inexistente", "La transferencia " + transferId + " no existe."));
+        if (current.status() != TransferStatus.IN_REVIEW) {
+            throw reviewNotPending();
+        }
+        long readVersion = sagas.find(transferId).orElseThrow().version();
+        // Compuerta de versión primero (toma el bloqueo de la saga): un segundo analista espera aquí y,
+        // al ver la versión cambiada, recibe 409.
+        long version = sagas.touch(transferId, readVersion).orElseThrow(TransferService::reviewNotPending);
+        TransferRow t = transfers.findForUpdate(transferId).orElseThrow();
+        if (t.status() != TransferStatus.IN_REVIEW) {
+            throw reviewNotPending();
+        }
+        List<Runnable> trail = new ArrayList<>();
+        TransferRow result = decision == ReviewDecision.APPROVE
+                ? approve(t, TransferStatus.IN_REVIEW, version, correlationId, trail)
+                : releaseAndReject(t, TransferStatus.IN_REVIEW, RejectionReason.ANALYST_REJECT, version,
+                        correlationId, trail);
+        trail.add(() -> {
+            Map<String, Object> detail = detail(TransferStatus.IN_REVIEW, result.status(), result, null);
+            detail.put("decision", decision.name());
+            detail.put("comment", comment);
+            audit.record(actor, "TRANSFER_REVIEWED", AuditWriter.ENTITY_TRANSFER, transferId.toString(),
+                    correlationId, detail);
+        });
+        trail.forEach(Runnable::run);   // auditoría al final: ver AuditWriter
+        return result;
+    }
+
+    private static ApiException reviewNotPending() {
+        return new ApiException(HttpStatus.CONFLICT, "review-not-pending", "Revisión no pendiente",
+                "La transferencia ya no está en revisión.");
+    }
+
     public Optional<TransferView> find(UUID transferId) {
         return transfers.find(transferId).map(TransferView::of);
     }
