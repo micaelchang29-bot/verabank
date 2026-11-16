@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class ApiKeyRegistryTest {
 
     private static ApiKeyRegistry registry(String spec) {
-        return new ApiKeyRegistry(new VerabankProperties(null, spec, null, null));
+        return new ApiKeyRegistry(new VerabankProperties(null, null, spec, null, null, null));
     }
 
     @Test

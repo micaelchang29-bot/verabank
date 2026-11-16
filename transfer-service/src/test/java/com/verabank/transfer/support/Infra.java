@@ -28,6 +28,9 @@ public final class Infra {
     public static final String TRANSFER_PASSWORD = "transfer-test-pw";
 
     public static final String TRANSFER_EVENTS = "transfer.events.v1";
+    public static final String RAIL_COMMANDS = "rail.commands.v1";
+    public static final String RAIL_REPLIES = "rail.replies.v1";
+    public static final String RAIL_REPLIES_DLT = "rail.replies.v1.dlt";
 
     public static final PostgreSQLContainer<?> POSTGRES;
     public static final KafkaContainer KAFKA;
@@ -50,7 +53,8 @@ public final class Infra {
                 .withEnv("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false");
         POSTGRES.start();
         KAFKA.start();
-        createTopics(Map.of(TRANSFER_EVENTS, 6));
+        // Como deploy/kafka/create-topics.sh: los DLT tienen una sola partición (§3.1).
+        createTopics(Map.of(TRANSFER_EVENTS, 6, RAIL_COMMANDS, 3, RAIL_REPLIES, 3, RAIL_REPLIES_DLT, 1));
     }
 
     private Infra() {

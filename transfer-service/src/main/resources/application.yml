@@ -28,6 +28,14 @@ spring:
       fail-on-null-for-primitives: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      group-id: transfer-service
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: manual_immediate
     producer:
       acks: all
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -44,7 +52,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,metrics
   endpoint:
     health:
       probes:
@@ -59,10 +67,31 @@ verabank:
   migrations-dir: ${VERABANK_MIGRATIONS_DIR:../db/migrations}
   # Claves por canal: "canal:clave,canal:clave". El canal es el client_id de la idempotencia.
   api-keys: ${VERABANK_API_KEYS:}
+  # Directorio de contracts del monorepo (esquemas de eventos que valida el consumidor del rail).
+  contracts-dir: ${VERABANK_CONTRACTS_DIR:../contracts}
+  # Saga: docs/saga.md §3. Cada clave se sobreescribe con su variable (SAGA_RAIL_REPLY_TIMEOUT…).
   saga:
-    # Una transferencia PENDING cuyo cierre falló se reanuda con un reintento de la misma
-    # clave pasado este plazo; antes, el reintento recibe 409 idempotency-in-progress.
-    resume-after: 30s
+    # Arrendamiento de una saga RUNNING: pasado este plazo, el sondeo o un reintento de la misma
+    # clave la reanudan; antes, el reintento recibe 409 idempotency-in-progress.
+    resume-after: ${SAGA_RESUME_AFTER:30s}
+    rail-reply-timeout: ${SAGA_RAIL_REPLY_TIMEOUT:30s}
+    poll-backoff-base: ${SAGA_POLL_BACKOFF_BASE:10s}
+    poll-backoff-max: ${SAGA_POLL_BACKOFF_MAX:60s}
+    cancel-after-polls: ${SAGA_CANCEL_AFTER_POLLS:3}
+    backoff-base: ${SAGA_BACKOFF_BASE:1s}
+    backoff-max: ${SAGA_BACKOFF_MAX:60s}
+    max-attempts: ${SAGA_MAX_ATTEMPTS:5}
+    poller-interval: ${SAGA_POLLER_INTERVAL:1s}
+    poller-batch: ${SAGA_POLLER_BATCH:50}
+    stuck-after: ${SAGA_STUCK_AFTER:15m}
+    stuck-refresh: ${SAGA_STUCK_REFRESH:15s}
+    poller-enabled: ${SAGA_POLLER_ENABLED:true}
+  rail:
+    commands-topic: rail.commands.v1
+    replies-topic: rail.replies.v1
+    replies-enabled: ${RAIL_REPLIES_ENABLED:true}
+    retry-interval: ${RAIL_REPLIES_RETRY_INTERVAL:1s}
+    retries: 3
   outbox:
     topic: transfer.events.v1
     relay-enabled: true

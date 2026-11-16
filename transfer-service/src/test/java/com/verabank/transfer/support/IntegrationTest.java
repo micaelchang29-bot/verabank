@@ -12,11 +12,13 @@ import org.springframework.test.context.DynamicPropertySource;
  *
  * <p>El relay del outbox está apagado por defecto. Los contextos de Spring se cachean entre
  * clases y comparten la base: un relay vivo en un contexto ajeno publicaría las filas del
- * escenario de otra prueba. Las clases que necesitan el relay lo activan con
- * {@link RelayEnabled} y cierran su contexto al terminar, de modo que solo hay uno a la vez.
+ * escenario de otra prueba. Lo mismo vale para el sondeo de la saga y el consumidor de
+ * rail.replies.v1. Las clases que los necesitan los activan con {@link RelayEnabled} o
+ * {@link SagaEnabled} y cierran su contexto al terminar, de modo que solo hay uno a la vez.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "verabank.outbox.relay-enabled=false")
+        properties = {"verabank.outbox.relay-enabled=false", "verabank.saga.poller-enabled=false",
+                "verabank.rail.replies-enabled=false"})
 public abstract class IntegrationTest {
 
     public static final String CLIENT_WEB = "web";

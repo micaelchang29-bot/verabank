@@ -56,6 +56,15 @@ public class TransferEvents {
         emit(t, "TransferRejected", payload, correlationId);
     }
 
+    /** Compensación cumplida (S10): la retención ya se liberó. */
+    public void failed(TransferRow t, String reason, UUID correlationId) {
+        ObjectNode payload = mapper.createObjectNode();
+        payload.put("transfer_id", t.transferId().toString());
+        payload.put("reason", reason);
+        payload.put("compensated", true);
+        emit(t, "TransferFailed", payload, correlationId);
+    }
+
     public void held(TransferRow t, UUID correlationId) {
         ObjectNode payload = mapper.createObjectNode();
         payload.put("transfer_id", t.transferId().toString());

@@ -66,7 +66,7 @@ class InternalTransferIT extends IntegrationTest {
                 source + ":D:TRANSFER:120.50:379.50",
                 dest + ":C:TRANSFER:120.50:140.50");
         assertThat(jdbc.sql("SELECT status || ':' || current_step FROM core.saga_state WHERE saga_id = :t")
-                .param("t", transferId).query(String.class).single()).isEqualTo("COMPLETED:CREDITED");
+                .param("t", transferId).query(String.class).single()).isEqualTo("COMPLETED:DONE");
         assertThat(jdbc.sql("""
                 SELECT fraud_decision || ':' || decision_source || ':' || model_version
                 FROM core.transfers WHERE transfer_id = :t""")
