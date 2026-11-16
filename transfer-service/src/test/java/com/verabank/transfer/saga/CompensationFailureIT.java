@@ -181,7 +181,7 @@ class CompensationFailureIT extends IntegrationTest {
         assertThat(Events.countByType(jdbc, id)).containsEntry("TransferFailed", 1L);
         assertThat(jdbc.sql("SELECT actor || ':' || (detail->>'to_status') FROM audit.audit_log "
                 + "WHERE entity_id = :t AND action = 'SAGA_RESUMED'").param("t", id.toString())
-                .query(String.class).single()).isEqualTo("mobile:COMPENSATING");
+                .query(String.class).single()).isEqualTo("channel:mobile:COMPENSATING");
         Events.assertAllValid(jdbc, id);
 
         // Ya no está detenida: una segunda reanudación es 409.

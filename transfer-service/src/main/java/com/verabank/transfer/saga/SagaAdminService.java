@@ -62,7 +62,7 @@ public class SagaAdminService {
             detail.put("to_status", resumeStatus);
             detail.put("current_step", saga.currentStep());
             detail.put("last_error", saga.lastError());
-            audit.record(actor, "SAGA_RESUMED", AuditWriter.ENTITY_TRANSFER, sagaId.toString(), correlationId, detail);
+            audit.record("channel:" + actor, "SAGA_RESUMED", AuditWriter.ENTITY_TRANSFER, sagaId.toString(), correlationId, detail);
             return sagas.find(sagaId).orElseThrow();
         });
         log.warn("saga {} reanudada por {} en {}/{}", sagaId, actor, resumed.status(), resumed.currentStep());
