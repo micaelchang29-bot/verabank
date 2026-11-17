@@ -14,7 +14,9 @@ stop-core: ## Detiene transfer-service
 	@scripts/stop-service.sh
 
 down-core: stop-core ## Detiene transfer-service y el compose (conserva los volúmenes)
-	@docker compose --profile core down
+	@# down no necesita las contraseñas, pero Compose interpola docker-compose.yml entero y las exige: con valores
+	@# ficticios solo aquí, la limpieza funciona aunque .env esté incompleto o el arranque haya fallado.
+	@RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" docker compose --profile core down
 
 test-core: ## Compila y prueba transfer-service (JUnit 5 + Testcontainers)
 	@cd transfer-service && ./mvnw -B verify
