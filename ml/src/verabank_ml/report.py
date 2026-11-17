@@ -130,7 +130,7 @@ def metrics_rows(result: dict, intervals: dict | None, main_block: str) -> list[
     return rows  # fmt: skip
 
 
-def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
+def build_report(cfg, selection, ablation, thresholds, test, ranking, served=None) -> str:
     main = str(cfg["bootstrap"]["block_steps"])
     sens = str(cfg["bootstrap"]["sensitivity_block_steps"])
     winner = selection["winner"]
@@ -140,7 +140,8 @@ def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
     out.append("## Modelo servido")
     manual = selection.get("manual_decision")
     why = f"{selection['reason']}" + (f"; decisión manual: {manual['reason']}" if manual else "")
-    v = thresholds["model_version"] if thresholds else "(sin thresholds.json)"
+    # versión servida: la del alias `champion` (si no se da, la de thresholds.json)
+    v = served or (thresholds["model_version"] if thresholds else "(sin thresholds.json)")
     tested = test is not None and test["model_version"] != v
     versions = f"`{v}`; evaluado en `test` como `{test['model_version']}`" if tested else f"`{v}`"
     out += [f"**{winner}** ({versions}), conjunto A. Motivo: {why}.", ""]
@@ -213,7 +214,7 @@ def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
         out += ["Aún no se ha ejecutado `make ml-eval-test`.", ""]
     else:
         same = "" if test["model_version"] == v else (
-            f"; el modelo servido, `{v}`, tiene los mismos pesos (mismo `model_sha256`), por lo que vale para ambos")
+            f"; el modelo servido, `{v}`, tiene los mismos pesos (mismo `model_sha256`), por lo que vale para ambos (ver ADR-11)")
         out += [f"Modelo evaluado: `{test['model_version']}`, umbrales congelados de valid{same}"
                 + (" (**reevaluado con --force-test**)" if test.get("test_reevaluated") else "") + ".", ""]  # fmt: skip
         n24 = test["intervals"][main]["n_blocks"]
@@ -304,6 +305,17 @@ def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
     return "\n".join(out)
 
 
+def champion_version(client, thresholds: dict | None) -> str | None:
+    """`nombre/versión` del alias `champion` actual; None si no hay thresholds.json ni alias."""
+    if thresholds is None:
+        return None
+    name = thresholds["model_version"].split("/")[0]
+    try:
+        return f"{name}/{client.get_model_version_by_alias(name, 'champion').version}"
+    except mlflow.exceptions.MlflowException:
+        return thresholds["model_version"]
+
+
 def pct(value, digits=3):
     return "–" if value is None else f"{value:.{digits}%}"
 
@@ -315,7 +327,7 @@ def report_command(argv: list[str]) -> int:
         print("falta ml/reports/selection.json: ejecuta make ml-train", file=sys.stderr)
         return 2
     selection = json.loads(SELECTION_PATH.read_text())
-    tracking.setup(cfg)
+    client = tracking.setup(cfg)
     ablation = run_ablation(cfg, selection["best_configs"])
     tracking.dump_json(ABLATION_PATH, ablation)
     with mlflow.start_run(run_name="ablation-B"):
@@ -334,6 +346,7 @@ def report_command(argv: list[str]) -> int:
         ranking["xgb"], _ = explain_xgb(selection, valid, cols)
     else:
         ranking["logreg"] = explain_logreg(selection, cols)
-    REPORT_PATH.write_text(build_report(cfg, selection, ablation, thresholds, test, ranking))
+    served = champion_version(client, thresholds)
+    REPORT_PATH.write_text(build_report(cfg, selection, ablation, thresholds, test, ranking, served))
     print(f"escrito {REPORT_PATH} y {ABLATION_PATH}")
     return 0
