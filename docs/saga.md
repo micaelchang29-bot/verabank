@@ -162,7 +162,7 @@ las fases 1 y 2). La decisión se aplica en `tx2` como en S2 a S5: `BLOCK` liber
 | D7 | En fallback `fraud_score` queda `NULL`, `model_version = 'fallback-v1'` y `TransferScored` se emite sin `score` |
 | Métricas | `scoring.remote.duration{outcome}`, `scoring.fallback.total{reason=timeout\|open\|error}`, `scoring.circuit.state` (0 cerrado, 1 semiabierto, 2 abierto) |
 
-**Cambio de contrato pendiente de ADR-12.** `contracts/events/TransferScored.v1.schema.json`: `score` deja de ser obligatorio
+**Cambio de contrato registrado en ADR-12.** `contracts/events/TransferScored.v1.schema.json`: `score` deja de ser obligatorio
 cuando `decision_source` es `FALLBACK` (esquema condicional `if/then/else`); con `MODEL` sigue siéndolo. Es el único cambio de
 contrato de esta integración y queda anotado en el propio esquema (`$comment`).
 
