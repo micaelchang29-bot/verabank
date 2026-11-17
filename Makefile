@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk db-grants seed-risk load-country-risk test-db build-risk test-risk
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk db-grants seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -119,6 +119,21 @@ test-risk: ## Compila y prueba risk-service (JUnit 5 + Testcontainers PostgreSQL
 
 build-risk: ## Imagen verabank/risk-service:dev (contexto: la raíz, por ml/artifacts)
 	@docker build -f risk-service/Dockerfile -t verabank/risk-service:dev .
+
+# Cargas del simulador (simulator/README.md): replay de PaySim y evaluación de las reglas AML. Necesitan make up-core,
+# risk-service (roles scoring y stream) y, para aml-eval, make amlgen. Leen .env con scripts/sim.sh.
+N ?= 20000
+TPS ?= 50
+AMOUNT_FACTOR ?= 1
+
+replay: ## Replay de PaySim (partición de prueba): make replay N=20000 TPS=50 [AMOUNT_FACTOR=1]
+	@scripts/sim.sh replay --n $(N) --tps $(TPS) --amount-factor $(AMOUNT_FACTOR)
+
+aml-run: ## Envía data/aml/transfers.jsonl por la API y aprueba las revisiones: make aml-run [TPS=50]
+	@scripts/sim.sh aml --in ../data/aml/transfers.jsonl --tps $(TPS) --approve-reviews
+
+aml-eval: aml-run ## aml-run y después la evaluación de las reglas contra la verdad de terreno (docs/resultados/aml-eval.md)
+	@scripts/sim.sh aml-eval --truth ../data/aml/ground_truth.jsonl --manifest ../data/aml/manifest.json --out ../docs/resultados/aml-eval.md
 
 # Generador AML con verdad de terreno (simulator/amlgen.yaml; salida en data/aml, ignorada por Git).
 SEED ?= 42

@@ -220,8 +220,70 @@ parámetros y misma semilla dan los mismos archivos byte a byte.
   deterministas y sintéticos: la fase 4 debe sembrar esas cuentas (con saldo) antes de reproducir.
 - Los destinos `COUNTRY_RISK` y `FAST_PASS` (salida) usan rail `EXTERNAL`; el resto, `INTERNAL`.
 
+## `replay`, `aml` y `aml-eval`: cargas contra el sistema
+
+Necesitan `make up-core`, risk-service (roles `scoring` y `stream`) y las variables de `.env`; `scripts/sim.sh` las carga.
+Las cuentas se siembran con asientos desde `CLEARING` (el mecanismo de `db/seed/01_core_seed.sql`, por lotes), así que
+`make reconcile` sigue dando 0 y 0; esas transferencias no pasan por el scoring, no dejan filas en `risk.scoring_log`
+y no emiten eventos.
+
+### `replay`
+
+```bash
+make replay N=20000 TPS=50 [AMOUNT_FACTOR=1]      # o: python -m verabank_sim replay --n 20000 --tps 50
+```
+
+Opciones: `--start-row`, `--amount-factor`, `--concurrency` (20), `--no-warmup`, `--no-labels`, `--no-seed`,
+`--final-timeout` (60 s), `--paysim`, `--base-url`, `--bootstrap`, `--out` (`data/replay`).
+
+- **Filas.** La partición de prueba de `ml/config.yaml` (pasos 575 a 744), solo los `types` de la configuración (nunca
+  `CASH_IN`), por `(step, row_id)`; las `N` primeras desde `--start-row`. Las filas con monto no positivo (tras el factor)
+  no son transferencias válidas: no cuentan para `N` ni para `--start-row` y se informan como `skipped_zero_amount`.
+- **Mapeo (D10).** Una cuenta por nombre de PaySim (`uuid5`); saldo sembrado `max(oldbalanceOrg, suma de montos del
+  origen en el replay)` (el conjunto A no usa saldos); cliente por hash entre 30.000 identificadores sintéticos, con su
+  segmento; destino siempre `EXTERNAL` con `dest_external_ref = "PS-<nombre>"` y `dest_country = "PE"`;
+  `occurred_at = sim_epoch + (step - 1) h`, igual para todas las filas del paso.
+- **Barrera por paso (D11).** No se envía ninguna fila del paso `s + 1` hasta que todas las del paso `s` tienen respuesta;
+  dentro del paso, ritmo de `--tps` con concurrencia acotada.
+- **Calentamiento (D1).** Antes de empezar carga en `risk.scoring_log`, con el rol `sim_loader` y `COPY`, las filas de los
+  24 pasos previos (`model_version = 'warmup'`, `features = '{}'`, `score = 0`, `decision = 'APPROVE'`, con el mismo
+  mapeo). Si ya estaban cargadas (un reintento), cae a `INSERT ... ON CONFLICT DO NOTHING`. **Desajuste aceptado:** las
+  ventanas de 1 h y 24 h quedan correctas, pero `dst_seen_before`, `dst_age_hours` e `is_new_beneficiary` ven menos
+  historia que en el entrenamiento. `--amount-factor` también escala los montos del calentamiento.
+- **Idempotencia.** La `Idempotency-Key` es `uuid5` de la fila y del monto ya multiplicado por el factor: repetir el replay
+  devuelve `200` con `Idempotent-Replayed`, y otro factor no choca con la corrida original. **El `transfer_id` lo asigna
+  el servicio** (la solicitud no lo lleva); el replay lo lee de `core.transfers` por la clave de idempotencia.
+- **Etiquetas.** Al terminar publica en `fraud.labels.v1` un `FraudLabelConfirmed` por transferencia
+  (`label_source = SIMULATOR`) con `occurred_at` de la transferencia + 24 h: tiempo de negocio, no se espera. El
+  `event_id` es determinista, así que repetir el replay no duplica etiquetas.
+- **Resumen** (`data/replay/summary.json` y pantalla): enviadas; por código HTTP; por `fraud_decision` y
+  `decision_source`; por estado final (espera hasta 60 s a que no queden `PENDING` ni `PROCESSING`); TPS alcanzado; y
+  p50, p95 y p99 de la latencia de cliente de `POST /transfers` y de `scoring_latency_ms`. Esos dos últimos datos y la
+  decisión salen de `core.transfers` con el rol de transfer-service (solo `SELECT`): la API de lectura no devuelve
+  `decision_source` ni `scoring_latency_ms`, y el rol de BI no lee `core`.
+
+### `aml` y `aml-eval` (D12)
+
+```bash
+make amlgen && make aml-eval      # genera, envía, aprueba las revisiones y evalúa
+```
+
+- `aml` envía `data/aml/transfers.jsonl` por la API respetando `occurred_at` y el orden (barrera por hora de negocio),
+  siembra sus cuentas (saldo = lo que la cuenta envía) y, con `--approve-reviews`, aprueba por la API las que quedan en
+  `IN_REVIEW` (comentario `aml-eval`). Resume completadas, aprobadas en revisión y rechazadas por `BLOCK`. Escribe
+  `data/aml/service_run.jsonl` (id del generador → id del servicio y desenlace), que `aml-eval` necesita porque las
+  alertas citan los ids del servicio.
+- `aml-eval` lee `risk.aml_alerts` con el rol de solo lectura y escribe `docs/resultados/aml-eval.md`. Solo cuentan las
+  alertas que tocan transferencias de `data/aml/`. `STRUCTURING` y `COUNTRY_RISK` se miden contra su tipología (una
+  instancia se detecta si una alerta de la regla contiene alguna de sus transferencias; precisión = alertas que tocan una
+  instancia de su tipología / alertas de la regla); `THRESHOLD`, solo conteo y proporción. Por tipología: instancias,
+  detectadas, recall y el techo de `manifest.json` (si el recall lo supera: «inconsistente», se investiga, no se «arregla»).
+  `FAN_IN` y `FAST_PASS`: no cubiertas (recall 0 por diseño, manual 0.1). Aparte: alertas por cada 1.000 transferencias e
+  instancias con alguna transferencia rechazada por `BLOCK` o sin completar. Salida determinista y solo con cifras
+  agregadas. No se ajusta ninguna regla ni parámetro del generador para mejorar las métricas.
+
 ## Pruebas
 
-`uv run pytest` ejecuta las unitarias (el motor con reloj falso, `chaos` con un cliente HTTP falso y `amlgen`; sin Kafka ni servicios). La integración lleva la
+`uv run pytest` ejecuta las unitarias (el motor con reloj falso, `chaos` con un cliente HTTP falso, `amlgen`, y `replay`, `aml` y `aml-eval` con HTTP simulado con `httpx.MockTransport`, `psql` y Kafka falsos; sin Kafka ni servicios). El SQL de siembra se prueba contra PostgreSQL real en `db/tests/test_sim_seed.py`. La integración lleva la
 marca `integration`, se pide con `-m integration` y **falla** si no hay Kafka: no se omite en
 silencio. Usa un grupo de consumo propio y lo borra al terminar.
