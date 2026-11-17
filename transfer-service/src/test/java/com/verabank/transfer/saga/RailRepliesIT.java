@@ -3,6 +3,10 @@ package com.verabank.transfer.saga;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,7 +26,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.clients.admin.OffsetSpec;
+import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -54,11 +65,15 @@ class RailRepliesIT extends IntegrationTest {
     @Autowired
     MeterRegistry meters;
 
-    @Autowired
+    @MockitoSpyBean
     SagaRepository sagas;
 
-    @Autowired
+    @MockitoSpyBean
     RailSaga railSaga;
+
+    /** Cuenta cuántas veces se entrega y se parsea cada mensaje: una redelivery se ve como otro parse. */
+    @MockitoSpyBean
+    ReplySchemas schemas;
 
     @Autowired
     TransferRepository transfers;
@@ -426,6 +441,142 @@ class RailRepliesIT extends IntegrationTest {
         await().atMost(Duration.ofSeconds(20)).until(() -> "COMPLETED".equals(status(id)));
         assertThat(inbox(eventId)).isEqualTo(1);
         assertThat(bank.reconcile()).containsExactly(0, 0);
+    }
+
+    // ------------------------------------------------------------------ §4: conflicto de versión, ack, un solo intento
+
+    /** Grupo del consumidor: suma de offsets confirmados y suma de los finales de rail.replies.v1. */
+    private long[] committedAndEnd() throws Exception {
+        try (Admin admin = Admin.create(Map.of("bootstrap.servers", Infra.KAFKA.getBootstrapServers()))) {
+            Map<TopicPartition, OffsetAndMetadata> committed = admin.listConsumerGroupOffsets("transfer-service")
+                    .partitionsToOffsetAndMetadata().get(10, TimeUnit.SECONDS);
+            long c = committed.entrySet().stream().filter(e -> e.getKey().topic().equals(Infra.RAIL_REPLIES))
+                    .mapToLong(e -> e.getValue().offset()).sum();
+            Map<TopicPartition, OffsetSpec> latest = new java.util.HashMap<>();
+            for (int p = 0; p < 3; p++) {
+                latest.put(new TopicPartition(Infra.RAIL_REPLIES, p), OffsetSpec.latest());
+            }
+            long end = admin.listOffsets(latest).all().get(10, TimeUnit.SECONDS).values().stream()
+                    .mapToLong(r -> r.offset()).sum();
+            return new long[] {c, end};
+        }
+    }
+
+    @Test
+    void unConflictoDeVersionSeReintentaEnElConsumidorYTerminaProcesadoSinPasarPorElDlt() {
+        UUID id = externalTransfer("100.00");
+        UUID eventId = UUID.randomUUID();
+        double dlt = count("inbox.dlt");
+        AtomicInteger finds = new AtomicInteger();
+        // Otro actor transita la saga entre la lectura del consumidor y su escritura: solo la primera vez.
+        doAnswer(inv -> {
+            Object row = inv.callRealMethod();
+            if (finds.getAndIncrement() == 0) {
+                jdbc.sql("UPDATE core.saga_state SET version = version + 1 WHERE saga_id = :t").param("t", id)
+                        .update();
+            }
+            return row;
+        }).when(sagas).find(id);
+
+        rail.send(RailDouble.confirmed(id).withEventId(eventId));
+
+        await().atMost(Duration.ofSeconds(20)).until(() -> "COMPLETED".equals(status(id)));
+        assertThat(finds.get()).as("lectura original más la del reintento").isEqualTo(2);
+        assertThat(inbox(eventId)).as("una sola fila en el inbox").isEqualTo(1);
+        assertThat(count("inbox.dlt")).as("sin DLT").isEqualTo(dlt);
+        assertThat(bank.countEntries(id, "D")).isEqualTo(1);
+        assertThat(bank.countEntries(id, "C")).isEqualTo(1);
+        // El reintento ocurre dentro del consumidor: el mensaje no se vuelve a entregar ni a parsear.
+        verify(schemas, times(1)).parse(contains(eventId.toString()));
+        assertThat(bank.reconcile()).containsExactly(0, 0);
+    }
+
+    @Test
+    void elOffsetDelGrupoNoAvanzaMientrasLaTransaccionNoHaTerminadoYAvanzaDespues() throws Exception {
+        UUID id = externalTransfer("100.00");
+        UUID eventId = UUID.randomUUID();
+        await().atMost(Duration.ofSeconds(20)).until(() -> {
+            long[] o = committedAndEnd();
+            return o[0] == o[1];   // el grupo está al día antes de empezar
+        });
+        long committedBefore = committedAndEnd()[0];
+        CountDownLatch inside = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(inv -> {
+            if (((RailReply) inv.getArgument(0)).eventId().equals(eventId)) {
+                inside.countDown();
+                if (!release.await(30, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("la prueba no liberó el consumidor");
+                }
+            }
+            return inv.callRealMethod();
+        }).when(railSaga).onReply(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+
+        rail.send(RailDouble.confirmed(id).withEventId(eventId));
+
+        try {
+            assertThat(inside.await(20, TimeUnit.SECONDS)).as("el consumidor está dentro de la transacción").isTrue();
+            // Con el mensaje en proceso (transacción abierta, sin confirmar) el offset sigue donde estaba.
+            Thread.sleep(1500);
+            assertThat(committedAndEnd()[0]).as("offset confirmado con la transacción abierta")
+                    .isEqualTo(committedBefore);
+            assertThat(status(id)).isEqualTo("PROCESSING");
+        } finally {
+            release.countDown();
+        }
+        await().atMost(Duration.ofSeconds(20)).until(() -> "COMPLETED".equals(status(id)));
+        await().atMost(Duration.ofSeconds(20)).until(() -> {
+            try {
+                return committedAndEnd()[0] == committedBefore + 1;
+            } catch (Exception e) {
+                return false;
+            }
+        });
+    }
+
+    @Test
+    void losMensajesInvalidosVanAlDltConUnSoloIntentoSinReintentos() {
+        // (1) transferencia inexistente, (2) respuesta para una interna, (3) payload que no valida.
+        UUID ghost = UUID.randomUUID();
+        UUID ghostEvent = UUID.randomUUID();
+        UUID dest = bank.account("0");
+        Http.Response internal = http.postTransfer(KEY_WEB, UUID.randomUUID(), Bank.internal(source, dest, "5.00"));
+        UUID internalId = UUID.fromString(internal.json().path("transfer_id").asText());
+        UUID internalEvent = UUID.randomUUID();
+        UUID badId = UUID.randomUUID();
+        UUID badEvent = UUID.randomUUID();
+
+        rail.send(RailDouble.confirmed(ghost).withEventId(ghostEvent));
+        rail.send(RailDouble.confirmed(internalId).withEventId(internalEvent));
+        rail.sendRaw(badId.toString(), RailDouble.envelope(new RailDouble.Reply("CreditConfirmed", badId,
+                Map.of("transfer_id", badId.toString()), badEvent)).toString());
+
+        assertThat(dlt(ghost.toString(), 1)).hasSize(1);
+        assertThat(dlt(internalId.toString(), 1)).hasSize(1);
+        assertThat(dlt(badId.toString(), 1)).hasSize(1);
+        // Con reintentos (incluso solo los de DefaultErrorHandler) cada mensaje se habría entregado 4 veces.
+        verify(schemas, times(1)).parse(contains(ghostEvent.toString()));
+        verify(schemas, times(1)).parse(contains(internalEvent.toString()));
+        verify(schemas, times(1)).parse(contains(badEvent.toString()));
+    }
+
+    @Test
+    void unaFechaMalFormadaEnOccurredAtSeRechazaPorElEsquemaYVaAlDlt() {
+        UUID id = externalTransfer("100.00");
+        UUID eventId = UUID.randomUUID();
+        var envelope = RailDouble.envelope(RailDouble.confirmed(id).withEventId(eventId));
+        envelope.put("occurred_at", "ayer");
+
+        rail.sendRaw(id.toString(), envelope.toString());
+
+        List<ConsumerRecord<String, String>> records = dlt(id.toString(), 1);
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).partition()).isZero();
+        assertThat(inbox(eventId)).isZero();
+        assertThat(status(id)).as("el abono no se confirmó").isEqualTo("PROCESSING");
+        assertThat(bank.held(source)).isEqualByComparingTo("100.00");
+        verify(schemas, times(1)).parse(contains(eventId.toString()));
     }
 
     // ------------------------------------------------------------------ versión

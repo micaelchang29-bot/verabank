@@ -8,6 +8,7 @@ import com.verabank.transfer.support.Bank;
 import com.verabank.transfer.support.Contracts;
 import com.verabank.transfer.support.Events;
 import com.verabank.transfer.support.Http;
+import com.verabank.transfer.support.Infra;
 import com.verabank.transfer.support.IntegrationTest;
 import com.verabank.transfer.support.Scoring;
 import java.util.ArrayList;
@@ -17,9 +18,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -42,6 +46,28 @@ class AnalystReviewIT extends IntegrationTest {
         bank = new Bank(jdbc, txManager);
         source = bank.account("1000.00");
         Scoring.blockAndReview(scorer);
+    }
+
+    @AfterEach
+    void quitarFalloInyectado() {
+        JdbcClient admin = admin();
+        admin.sql("DROP TRIGGER IF EXISTS probe_fail_audit ON audit.audit_log").update();
+        admin.sql("DROP FUNCTION IF EXISTS audit.probe_fail_audit()").update();
+    }
+
+    private static JdbcClient admin() {
+        return JdbcClient.create(new DriverManagerDataSource(Infra.POSTGRES.getJdbcUrl(), Infra.ADMIN_USER,
+                Infra.ADMIN_PASSWORD));
+    }
+
+    /** Hace fallar el INSERT en audit.audit_log para la acción dada (el rol del servicio no puede evitarlo). */
+    private static void failAuditFor(String action) {
+        JdbcClient admin = admin();
+        admin.sql("CREATE OR REPLACE FUNCTION audit.probe_fail_audit() RETURNS trigger LANGUAGE plpgsql AS $$ "
+                + "BEGIN IF NEW.action = '" + action + "' THEN RAISE EXCEPTION 'fallo inyectado en auditoria' "
+                + "USING ERRCODE = '23514'; END IF; RETURN NEW; END $$").update();
+        admin.sql("CREATE TRIGGER probe_fail_audit BEFORE INSERT ON audit.audit_log FOR EACH ROW "
+                + "EXECUTE FUNCTION audit.probe_fail_audit()").update();
     }
 
     private UUID held(String body) {
@@ -156,6 +182,36 @@ class AnalystReviewIT extends IntegrationTest {
         Http.Response missing = http.review(KEY_WEB, UUID.randomUUID(), decision("APPROVE", "x"));
         assertThat(missing.status()).isEqualTo(404);
         assertThat(missing.json().path("type").asText()).isEqualTo("transfer-not-found");
+    }
+
+    @Test
+    void siFallaLaAuditoriaDeLaRevisionNadaDeLaTransicionQuedaConfirmado() {
+        UUID dest = bank.account("0");
+        UUID internal = held(Bank.internal(source, dest, "77.77"));
+        UUID external = held(Bank.external(source, "77.77"));
+        List<String> internalEventsBefore = Events.types(jdbc, internal);
+        List<String> externalEventsBefore = Events.types(jdbc, external);
+        failAuditFor("TRANSFER_REVIEWED");
+
+        Http.Response approve = http.review(KEY_WEB, internal, decision("APPROVE", "ok"));
+        Http.Response reject = http.review(KEY_WEB, external, decision("REJECT", "no"));
+
+        assertThat(approve.status()).isEqualTo(500);
+        assertThat(reject.status()).isEqualTo(500);
+        for (UUID id : List.of(internal, external)) {
+            assertThat(jdbc.sql("SELECT status FROM core.transfers WHERE transfer_id = :t").param("t", id)
+                    .query(String.class).single()).isEqualTo("IN_REVIEW");
+            assertThat(saga(id)).startsWith("IN_REVIEW:");
+        }
+        assertThat(Events.types(jdbc, internal)).isEqualTo(internalEventsBefore);
+        assertThat(Events.types(jdbc, external)).isEqualTo(externalEventsBefore);
+        assertThat(bank.countEntries(internal, "D")).isZero();
+        assertThat(bank.balance(dest)).isEqualByComparingTo("0");
+        assertThat(bank.held(source)).isEqualByComparingTo("155.54");
+
+        // Sin el fallo, la misma decisión se puede tomar: no quedó nada a medias.
+        quitarFalloInyectado();
+        assertThat(http.review(KEY_WEB, internal, decision("APPROVE", "ok")).status()).isEqualTo(200);
     }
 
     @Test

@@ -63,6 +63,9 @@ def test_instruccion_valida_pasa(schemas):
         lambda e: e.update(schema_version=2),
         lambda e: e.update(event_id="no-es-uuid"),
         lambda e: e.update(occurred_at="ayer"),
+        lambda e: e.update(occurred_at="2026-11-16T10:00:00"),  # date-time sin zona horaria (RFC 3339 la exige)
+        lambda e: e.update(occurred_at="2026-11-16"),
+        lambda e: e.update(emitted_at="2026-11-16T10:00:00.123"),
         lambda e: e.update(extra="x"),
         lambda e: e.update(event_type="Desconocido"),
         lambda e: e.update(event_type=m.CREDIT_CONFIRMED),  # no es un comando

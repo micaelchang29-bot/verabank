@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import uuid
 
 import pytest
@@ -72,13 +73,17 @@ def test_tasas_observadas_con_10000_transferencias(make_engine, param, rate):
         engine.handle(command(INSTR, str(uuid.UUID(int=i))))
     credits = [engine.store.get(str(uuid.UUID(int=i))) for i in range(n)]
     kept = [c for c in credits if c is not None]
+    sample = n if param == "lost_rate" else len(kept)
     observed = {
         "reject_rate": sum(c.outcome == "REJECTED" for c in kept) / len(kept),
         "silent_rate": sum(c.silent for c in kept) / len(kept),
         "lost_rate": 1 - len(kept) / n,
         "dup_rate": sum(c.dup for c in kept) / len(kept),
     }[param]
-    assert observed == pytest.approx(rate, abs=0.02)
+    # Cota binomial: 5 desviaciones típicas de una proporción sobre la muestra que se mide
+    # (la semilla es fija, así que la prueba es determinista; la cota no depende de la tasa).
+    sigma = math.sqrt(rate * (1 - rate) / sample)
+    assert abs(observed - rate) <= 5 * sigma, f"{param}: observado {observed:.4f}, esperado {rate} ± {5 * sigma:.4f}"
 
 
 def test_retraso_uniforme_dentro_del_rango(make_engine, clock):
