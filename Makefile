@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -65,3 +65,10 @@ ml-env: ## Crea o actualiza el entorno Python de ml/ desde uv.lock
 
 ml-test: ## Pruebas de ml/ sin las que necesitan PaySim (-m "not data")
 	@uv run --project ml --frozen pytest ml/tests -m "not data"
+
+data: ## Descarga PaySim a data/raw/paysim.csv (idempotente; hash en ml/data.sha256)
+	@scripts/data.sh
+
+eda: ## Ejecuta ml/notebooks/01_eda.ipynb y guarda las salidas (requiere make data)
+	@uv run --project ml --frozen jupyter nbconvert --to notebook --execute --inplace \
+	  --ExecutePreprocessor.timeout=1800 ml/notebooks/01_eda.ipynb
