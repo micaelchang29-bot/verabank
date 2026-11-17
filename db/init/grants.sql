@@ -11,6 +11,11 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA risk TO risk_svc;
 ALTER DEFAULT PRIVILEGES FOR ROLE verabank_risk IN SCHEMA risk
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO risk_svc;
 
+-- Respaldo del lado del servidor del límite de 100 ms por consulta que impone el cliente (risk-scoring). Es por
+-- sentencia, no por transacción, y también lo usa el rol stream: sus sentencias (upserts de una alerta, consultas
+-- de ventana por índice, API de alertas) son de milisegundos.
+ALTER ROLE risk_svc SET statement_timeout = '250ms';
+
 -- Auditoría: risk_svc solo puede llamar a audit.append (SECURITY DEFINER); el USAGE del esquema
 -- no da acceso a sus tablas.
 GRANT USAGE ON SCHEMA audit TO risk_svc;

@@ -103,6 +103,26 @@ class TestSimLoader:
         assert grants == [("risk.scoring_log", "INSERT")]
 
 
+class TestStatementTimeout:
+    """Respaldo del lado del servidor del límite de 100 ms del cliente (ajuste heredado de 4.C)."""
+
+    def test_risk_svc_has_a_250ms_statement_timeout_and_it_is_enforced(self, provisioned_db):
+        with provisioned_db.connect("risk_svc") as conn:
+            assert conn.execute("SHOW statement_timeout").fetchone() == ("250ms",)
+            with pytest.raises(psycopg.errors.QueryCanceled):
+                conn.execute("SELECT pg_sleep(1)")
+
+    def test_the_other_roles_have_no_statement_timeout(self, provisioned_db):
+        for role in ("sim_loader", "verabank_bi"):
+            with provisioned_db.connect(role) as conn:
+                assert conn.execute("SHOW statement_timeout").fetchone() == ("0",)
+
+    def test_granting_twice_keeps_the_setting(self, provisioned_db):
+        provisioned_db.script("db-grants.sh")
+        with provisioned_db.connect("risk_svc") as conn:
+            assert conn.execute("SHOW statement_timeout").fetchone() == ("250ms",)
+
+
 class TestBi:
     def test_reads_risk_and_analytics_but_writes_nothing(self, provisioned_db):
         with provisioned_db.connect("verabank_bi") as conn:
