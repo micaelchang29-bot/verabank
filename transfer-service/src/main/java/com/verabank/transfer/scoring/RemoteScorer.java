@@ -31,6 +31,8 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 /**
@@ -47,12 +49,15 @@ public class RemoteScorer implements FraudScorer {
 
     private static final Logger log = LoggerFactory.getLogger(RemoteScorer.class);
     private static final String CORRELATION_HEADER = "X-Correlation-Id";
+    private static final String READINESS_PATH = "/q/health/ready";
+    private static final Duration WARM_UP_TIMEOUT = Duration.ofSeconds(2);
 
     private final ScoringProperties properties;
     private final ObjectMapper mapper;
     private final MeterRegistry meters;
     private final HttpClient client;
     private final URI endpoint;
+    private final URI readiness;
     private final FallbackScorer fallback;
     private final CircuitBreaker breaker;
 
@@ -65,7 +70,9 @@ public class RemoteScorer implements FraudScorer {
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(properties.remote().connectTimeout())
                 .build();
-        this.endpoint = URI.create(properties.remote().url().replaceAll("/+$", "") + "/internal/v1/scores");
+        String base = properties.remote().url().replaceAll("/+$", "");
+        this.endpoint = URI.create(base + "/internal/v1/scores");
+        this.readiness = URI.create(base + READINESS_PATH);
         this.fallback = new FallbackScorer(properties.fallbackLimit());
         ScoringProperties.CircuitBreaker cb = properties.circuitBreaker();
         this.breaker = CircuitBreaker.of("risk-service", CircuitBreakerConfig.custom()
@@ -80,6 +87,33 @@ public class RemoteScorer implements FraudScorer {
         Gauge.builder("scoring.circuit.state", breaker, b -> stateCode(b.getState()))
                 .description("Estado del circuito de risk-service: 0 cerrado, 1 semiabierto, 2 abierto")
                 .register(meters);
+    }
+
+    /**
+     * Al arrancar, calienta el cliente HTTP (clases, JIT y la conexión que luego se reutiliza) con la readiness de
+     * risk-service. Va en segundo plano: no retrasa el arranque, su fallo solo se registra y no pasa por el circuit
+     * breaker ni por las métricas del scoring. Sin él, la primera solicitud real de un proceso frío puede pasar de los
+     * 120 ms y caer en fallback.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmUpOnStartup() {
+        Thread.ofPlatform().daemon().name("scoring-warm-up").start(this::warmUp);
+    }
+
+    /** La petición de calentamiento (síncrona). Nunca lanza: cualquier fallo se ignora con un INFO. */
+    void warmUp() {
+        long start = System.nanoTime();
+        try {
+            HttpRequest request = HttpRequest.newBuilder(readiness).timeout(WARM_UP_TIMEOUT).GET().build();
+            HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
+            log.info("calentamiento del cliente de scoring: risk-service respondió {} en {} ms",
+                    response.statusCode(), millisSince(start));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.info("calentamiento del cliente de scoring interrumpido; se ignora");
+        } catch (Exception e) {
+            log.info("calentamiento del cliente de scoring falló ({}); se ignora y el servicio arranca igual", e.toString());
+        }
     }
 
     @Override

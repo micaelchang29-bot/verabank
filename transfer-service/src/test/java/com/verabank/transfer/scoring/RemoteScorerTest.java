@@ -3,10 +3,13 @@ package com.verabank.transfer.scoring;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
@@ -276,6 +279,61 @@ class RemoteScorerTest {
         assertThat(server.getAllServeEvents()).as("el circuito sigue intentando la llamada").hasSize(30);
         assertThat(appender.list).filteredOn(e -> e.getLevel() == Level.ERROR).hasSize(30);
         assertThat(fallbacks("error")).isEqualTo(30);
+    }
+
+    // --- calentamiento al arrancar ------------------------------------------------------------------------------------
+
+    private static final String READY = "/q/health/ready";
+
+    @Test
+    void warmUpHitsTheReadinessOfRiskServiceWithTheSameClientAndLeavesNoTraceInTheScoringMetrics() {
+        server.stubFor(get(urlEqualTo(READY)).willReturn(aResponse().withStatus(200).withBody("{\"status\":\"UP\"}")));
+
+        scorer.warmUp();
+
+        server.verify(1, getRequestedFor(urlEqualTo(READY)));
+        server.verify(0, postRequestedFor(urlEqualTo(PATH)));   // no es una puntuación: no deja filas en risk-service
+        assertThat(scorer.circuitBreaker().getMetrics().getNumberOfBufferedCalls()).isZero();
+        assertThat(meters.find("scoring.remote.duration").timer()).isNull();
+        assertThat(meters.find("scoring.fallback.total").counter()).isNull();
+    }
+
+    @Test
+    void warmUpFailuresAreIgnoredAndNeverOpenOrFeedTheCircuit() throws Exception {
+        server.stubFor(get(urlEqualTo(READY)).willReturn(aResponse().withStatus(503)));
+        for (int i = 0; i < 25; i++) {
+            scorer.warmUp();   // un 503, 25 veces: sería suficiente para abrir el circuito si contara
+        }
+        server.stubFor(get(urlEqualTo(READY)).willReturn(aResponse().withFixedDelay(3_000).withStatus(200)));
+        scorer.warmUp();       // más lento que su tiempo máximo
+        int closedPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        scheduleWarmUp("http://localhost:" + closedPort);   // conexión rechazada
+
+        assertThat(scorer.circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(scorer.circuitBreaker().getMetrics().getNumberOfBufferedCalls()).isZero();
+        assertThat(meters.find("scoring.fallback.total").counter()).isNull();
+        // y el scoring posterior funciona con normalidad
+        stub(200, OK, 0);
+        assertThat(scorer.score(request("10.00")).source()).isEqualTo(DecisionSource.MODEL);
+    }
+
+    private void scheduleWarmUp(String url) {
+        scorer(url, Duration.ofSeconds(10), meters).warmUp();
+    }
+
+    @Test
+    void warmUpOnStartupRunsInTheBackgroundWithoutBlockingTheCaller() {
+        server.stubFor(get(urlEqualTo(READY)).willReturn(aResponse().withStatus(200).withFixedDelay(1_000)));
+
+        long start = System.nanoTime();
+        scorer.warmUpOnStartup();
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertThat(elapsedMs).as("no espera la respuesta de risk-service").isLessThan(200);
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> server.verify(1, getRequestedFor(urlEqualTo(READY))));
     }
 
     @AfterEach

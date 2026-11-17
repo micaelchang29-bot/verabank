@@ -6,6 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -54,7 +55,15 @@ class RemoteScoringIT {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final WireMockServer RISK = new WireMockServer(WireMockConfiguration.options().dynamicPort());
 
+    /** Lo que risk-service vio durante el arranque del contexto, antes de que ninguna prueba registre un stub. */
+    private static final List<String> STARTUP_REQUESTS = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private static final List<Integer> STARTUP_STATUSES = new java.util.concurrent.CopyOnWriteArrayList<>();
+
     static {
+        RISK.addMockServiceRequestListener((request, response) -> {
+            STARTUP_REQUESTS.add(request.getMethod() + " " + request.getUrl());
+            STARTUP_STATUSES.add(response.getStatus());
+        });
         RISK.start();
     }
 
@@ -93,6 +102,7 @@ class RemoteScoringIT {
     @BeforeEach
     void setUp() {
         assertThat(scorer).isInstanceOf(RemoteScorer.class);
+
         ((RemoteScorer) scorer).circuitBreaker().reset();
         RISK.resetAll();
         http = new Http(port);
@@ -124,6 +134,19 @@ class RemoteScoringIT {
     private String row(UUID id, String columns) {
         return jdbc.sql("SELECT " + columns + " FROM core.transfers WHERE transfer_id = :t").param("t", id)
                 .query(String.class).single();
+    }
+
+    // --- calentamiento al arrancar ---------------------------------------------------------------------------------
+
+    @Test
+    void theContextWarmsUpTheClientAtStartupAndAFailedWarmUpNeitherBlocksNorOpensTheCircuit() {
+        // Nadie había registrado un stub: risk-service respondió 404 a la readiness y el contexto arrancó igual.
+        await().atMost(java.time.Duration.ofSeconds(5)).until(() -> STARTUP_REQUESTS.contains("GET /q/health/ready"));
+        // Es la primera petición que ve risk-service (antes de cualquier tráfico de prueba) y no puntúa nada.
+        assertThat(STARTUP_REQUESTS.get(0)).isEqualTo("GET /q/health/ready");
+        assertThat(STARTUP_STATUSES.get(0)).isEqualTo(404);
+        assertThat(((RemoteScorer) scorer).circuitBreaker().getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(((RemoteScorer) scorer).circuitBreaker().getMetrics().getNumberOfFailedCalls()).isZero();
     }
 
     // --- decisiones del modelo ------------------------------------------------------------------------------------
