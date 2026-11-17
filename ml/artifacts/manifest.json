@@ -32,7 +32,7 @@
       "sha256": "f7d816074d5e0b4e81c7d098ba6ff8f6a901461bacde7e8c7361c36ce307414d"
     },
     "golden.jsonl": {
-      "sha256": "811fba62ac5938b6dbcc340994a66e29ec9d40b11d9bc3fafb7679fec1cbff2e",
+      "sha256": "9a264bb6cb343d2bdf06d73d25f0ef5d693275d6255eacca5912ef3cd2a9d355",
       "cases": 1000
     }
   },
@@ -57,15 +57,15 @@
   },
   "inputs": {
     "contracts/features.yaml": "5de9692aabe09dd4062ee3b258321906cab5b2c322721bd7bbb84ac2df238527",
-    "ml/config.yaml": "f06de9d0b648fc78796be9424e9434efa67d13c280bc564c3ce17bcc2d18887f",
+    "ml/config.yaml": "184ec660f34e0adaf48c354921e40b00bb2b9b62396df397dc6b6b5137fb1452",
     "paysim.csv": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b"
   },
   "golden": {
     "strata": {
       "above_review": 250,
-      "boundary": 37,
+      "boundary": 100,
       "fraud": 250,
-      "random": 463
+      "random": 400
     },
     "onnx_vs_score_max_abs_diff": 1.7881393432617188e-07
   }

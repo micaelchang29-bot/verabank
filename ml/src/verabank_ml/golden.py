@@ -50,7 +50,7 @@ def _allocate(counts: dict[str, int], total: int) -> dict[str, int]:
 def choose_cases(valid: pd.DataFrame, thresholds: dict, gcfg: dict, seed: int) -> pd.DataFrame:
     """Elige los casos de `valid` (columnas row_id, type, is_fraud, score, n_history) y marca su estrato.
 
-    Orden de elección: boundary, fraud, above_review y el resto legítimas estratificadas por tipo.
+    Orden de elección: boundary (hasta 4 · boundary_per_side casos), fraud, above_review y el resto legítimas estratificadas por tipo.
     """
     rng = np.random.default_rng(seed)
     pool = valid[valid["n_history"] <= gcfg["max_history"]].reset_index(drop=True)
@@ -58,27 +58,24 @@ def choose_cases(valid: pd.DataFrame, thresholds: dict, gcfg: dict, seed: int) -
     t_review, t_block = thresholds["t_review"], thresholds["t_block"]
     chosen: dict[int, str] = {}
 
-    # boundary: por umbral y lado, los más cercanos (los empates se sortean con la semilla)
-    per_side = gcfg["boundary"] // 4
-    for threshold in (t_review, t_block):
+    # boundary: por umbral y lado (según el score redondeado), los `boundary_per_side` scores distintos más
+    # cercanos al umbral; un caso por score (los empates se sortean con la semilla)
+    boundary_of: dict[int, str] = {}
+    for name, threshold in (("t_review", t_review), ("t_block", t_block)):
         for above in (False, True):
             side = pool[(pool["rounded"] >= threshold) == above]
-            near = side[(side["score"] - threshold).abs() < gcfg["boundary_distance"]]
-            near = near[~near.index.isin(chosen)]
-            order = np.lexsort(
-                (rng.random(len(near)), (near["score"] - threshold).abs().to_numpy())
-            )
-            for idx in near.index[order][:per_side]:
+            side = side[~side.index.isin(chosen)]
+            order = np.lexsort((rng.random(len(side)), (side["score"] - threshold).abs().to_numpy()))
+            seen: set[float] = set()
+            for idx in side.index[order]:
+                score = float(side.at[idx, "score"])
+                if score in seen:
+                    continue
+                seen.add(score)
                 chosen[idx] = "boundary"
-    missing = gcfg["boundary"] - sum(v == "boundary" for v in chosen.values())
-    if (
-        missing > 0
-    ):  # un lado sin candidatos suficientes: se completa con los más cercanos de cualquier lado
-        distance = np.minimum((pool["score"] - t_review).abs(), (pool["score"] - t_block).abs())
-        near = pool[(distance < gcfg["boundary_distance"]) & ~pool.index.isin(chosen)]
-        order = np.lexsort((rng.random(len(near)), distance[near.index].to_numpy()))
-        for idx in near.index[order][:missing]:
-            chosen[idx] = "boundary"
+                boundary_of[idx] = name
+                if len(seen) == gcfg["boundary_per_side"]:
+                    break
 
     def draw(mask, n, stratum):
         candidates = pool.index[mask & ~pool.index.isin(chosen)]
@@ -99,6 +96,7 @@ def choose_cases(valid: pd.DataFrame, thresholds: dict, gcfg: dict, seed: int) -
         draw(((pool["is_fraud"] == 0) & (pool["type"] == type_)).to_numpy(), n, "random")
     selected = pool.loc[list(chosen)].copy()
     selected["stratum"] = [chosen[i] for i in selected.index]
+    selected["boundary_of"] = [boundary_of.get(i) for i in selected.index]
     return selected.sort_values("row_id").reset_index(drop=True)
 
 

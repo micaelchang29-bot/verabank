@@ -54,30 +54,34 @@
   },
   "strata": {
     "above_review": 250,
-    "boundary": 37,
+    "boundary": 100,
     "fraud": 250,
-    "random": 463
+    "random": 400
   },
   "golden_by_type_and_class": {
-    "CASH_OUT/legitimate": 325,
-    "CASH_OUT/fraud": 127,
-    "DEBIT/legitimate": 5,
-    "PAYMENT/legitimate": 217,
-    "TRANSFER/legitimate": 179,
-    "TRANSFER/fraud": 147
+    "CASH_OUT/legitimate": 306,
+    "CASH_OUT/fraud": 157,
+    "DEBIT/legitimate": 4,
+    "PAYMENT/legitimate": 187,
+    "TRANSFER/legitimate": 192,
+    "TRANSFER/fraud": 154
   },
   "boundary": {
-    "n": 37,
+    "n": 100,
     "by_threshold": {
       "t_review": {
-        "below": 0,
-        "at_or_above": 15,
-        "rounding_crosses_threshold": 0
+        "below": 25,
+        "at_or_above": 25,
+        "rounding_crosses_threshold": 0,
+        "max_distance_below": 0.024985428256988573,
+        "max_distance_at_or_above": 0.01896435459136958
       },
       "t_block": {
-        "below": 20,
-        "at_or_above": 2,
-        "rounding_crosses_threshold": 2
+        "below": 25,
+        "at_or_above": 25,
+        "rounding_crosses_threshold": 1,
+        "max_distance_below": 0.014056433486938524,
+        "max_distance_at_or_above": 0.008705686283111524
       }
     }
   },

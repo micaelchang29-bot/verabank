@@ -184,14 +184,15 @@ def export_command(argv: list[str]) -> int:
     boundary = selected[selected["stratum"] == "boundary"]
     boundary_sides = {}
     for name, t in (("t_review", t_review), ("t_block", t_block)):
-        near = boundary[(boundary["score"] - t).abs() < gcfg["boundary_distance"]]
+        own = boundary[boundary["boundary_of"] == name]
+        rounded_own = np.round(own["score"], 5)
         boundary_sides[name] = {
-            "below": int((np.round(near["score"], 5) < t).sum()),
-            "at_or_above": int((np.round(near["score"], 5) >= t).sum()),
-            "rounding_crosses_threshold": int(
-                ((near["score"] < t) & (np.round(near["score"], 5) >= t)).sum()
-            ),
-        }
+            "below": int((rounded_own < t).sum()),
+            "at_or_above": int((rounded_own >= t).sum()),
+            "rounding_crosses_threshold": int(((own["score"] < t) & (rounded_own >= t)).sum()),
+            "max_distance_below": float((t - own["score"][rounded_own < t]).abs().max()) if (rounded_own < t).any() else None,
+            "max_distance_at_or_above": float((own["score"][rounded_own >= t] - t).abs().max()) if (rounded_own >= t).any() else None,
+        }  # fmt: skip
     report = {
         "exclusion": exclusion,
         "strata": strata,

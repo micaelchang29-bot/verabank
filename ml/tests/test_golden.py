@@ -22,8 +22,7 @@ GCFG = {
     "total": 60,
     "fraud": 10,
     "above_review": 10,
-    "boundary": 8,
-    "boundary_distance": 0.0005,
+    "boundary_per_side": 2,
     "max_history": 5,
 }
 
@@ -82,10 +81,18 @@ def test_choose_cases_composition_and_determinism():
     assert (legit_extra["is_fraud"] == 0).all()
     assert (first.loc[first["stratum"] == "above_review", "score"].round(5) >= 0.5).all()
     boundary = first[first["stratum"] == "boundary"]
-    distance = np.minimum((boundary["score"] - 0.5).abs(), (boundary["score"] - 0.8).abs())
-    assert (distance < GCFG["boundary_distance"]).all()
-    sides = {(round(s, 5) >= 0.5, round(s, 5) >= 0.8) for s in boundary["score"]}
-    assert len(sides) >= 3  # ambos lados de ambos umbrales
+    assert boundary["score"].is_unique  # scores distintos
+    for name, t in (("t_review", 0.5), ("t_block", 0.8)):
+        own = boundary[boundary["boundary_of"] == name]
+        rounded = own["score"].round(5)
+        assert (rounded < t).sum() == 2 and (rounded >= t).sum() == 2, name  # 2 por lado
+        # son los 2 scores más cercanos de cada lado
+        pool = frame[frame["n_history"] <= GCFG["max_history"]]
+        for below in (True, False):
+            side = pool[(pool["score"].round(5) < t) == below]
+            nearest = sorted(side["score"].unique(), key=lambda v: abs(v - t))[:2]
+            chosen = own[(rounded < t) == below]["score"]
+            assert sorted(chosen) == sorted(nearest), (name, below)
     assert not first.sort_values("row_id")["row_id"].diff().dropna().le(0).any()
 
 

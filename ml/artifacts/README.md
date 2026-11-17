@@ -31,9 +31,23 @@ Una línea por caso: `case_id`, `stratum`, `request`, `history`, `features`, `sc
 - `score`: probabilidad `float64` del modelo original (`predict_proba` sobre las features en `float32`).
   ONNX Runtime debe reproducirla con diferencia < 1e-5.
 - `decision`: resultado de aplicar la regla anterior a `score`.
-- `stratum`: `fraud`, `above_review` (legítimas con score ≥ `t_review`), `boundary` (a menos de 0,0005 de un
-  umbral, a ambos lados, incluidos casos en que el redondeo a 5 decimales cambia el lado) o `random`
-  (legítimas al azar estratificadas por tipo).
+- `stratum`: `fraud`, `above_review` (legítimas con score ≥ `t_review`), `boundary` (frontera, ver abajo) o
+  `random` (legítimas al azar estratificadas por tipo).
+
+### Casos de frontera
+
+No hay un radio fijo. Por cada umbral y por cada lado (medido con el score redondeado a 5 decimales:
+`< umbral` o `≥ umbral`) se toman, en `valid`, los `golden.boundary_per_side` (25) scores distintos más cercanos
+al umbral, un caso por score: 100 casos como máximo. Los scores de XGBoost son poco densos alrededor de los
+umbrales, así que la distancia real es grande. Resultado de esta exportación (`ml/reports/golden_selection.json`):
+
+| Umbral | Casos `<` | Casos `≥` | Distancia máx. `<` | Distancia máx. `≥` | Cruces por redondeo |
+|---|---|---|---|---|---|
+| `t_review` | 25 | 25 | 0.02499 | 0.01896 | 0 |
+| `t_block` | 25 | 25 | 0.01406 | 0.00871 | 1 |
+
+«Cruce por redondeo»: score sin redondear `< umbral` que, redondeado a 5 decimales, pasa a `≥ umbral`. En
+`t_review` ningún score de `valid` cae en esa franja; los cruces cubren solo `t_block`.
 
 Las cuentas son alias locales (`a1`, `a2`, …) que conservan las igualdades dentro de cada caso. Ningún nombre de
 cuenta de PaySim aparece en estos archivos.

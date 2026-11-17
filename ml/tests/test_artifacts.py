@@ -95,26 +95,24 @@ def test_stored_decision_follows_the_rounded_score_rule(cases, thresholds):
 
 
 def test_boundary_cases_fall_on_the_expected_side(cases, thresholds, cfg):
-    distance = cfg["golden"]["boundary_distance"]
-    seen_crossing = False
-    for case in cases:
-        for name in ("t_review", "t_block"):
-            t = thresholds[name]
-            if abs(case["score"] - t) >= distance:
-                continue
-            above = round(case["score"], 5) >= t
-            order = ["APPROVE", "REVIEW", "BLOCK"]
-            reached = order.index(case["decision"]) >= (1 if name == "t_review" else 2)
-            assert reached == above, (case["case_id"], name)
-            seen_crossing |= case["score"] < t <= round(case["score"], 5)
-    assert seen_crossing, "ningún caso en que el redondeo a 5 decimales cambie el lado del umbral"
-    near = [
-        c
-        for c in cases
-        if any(abs(c["score"] - thresholds[n]) < distance for n in ("t_review", "t_block"))
-    ]
-    assert any(c["score"] < thresholds["t_block"] <= round(c["score"], 5) for c in near)
-    assert {round(c["score"], 5) >= thresholds["t_block"] for c in near} == {True, False}
+    per_side = cfg["golden"]["boundary_per_side"]
+    boundary = [c for c in cases if c["stratum"] == "boundary"]
+    order = ["APPROVE", "REVIEW", "BLOCK"]
+    crossings = 0
+    for name, level in (("t_review", 1), ("t_block", 2)):
+        t = thresholds[name]
+        # cada caso de frontera se asigna al umbral más cercano (los dos umbrales están muy separados)
+        own = [c for c in boundary if abs(c["score"] - t) == min(abs(c["score"] - thresholds[n]) for n in ("t_review", "t_block"))]
+        above = [c for c in own if round(c["score"], 5) >= t]
+        below = [c for c in own if round(c["score"], 5) < t]
+        assert 1 <= len(above) <= per_side and 1 <= len(below) <= per_side, name
+        assert len({c["score"] for c in own}) == len(own), "scores distintos"
+        for c in above:
+            assert order.index(c["decision"]) >= level, (c["case_id"], name)
+        for c in below:
+            assert order.index(c["decision"]) < level, (c["case_id"], name)
+        crossings += sum(1 for c in own if c["score"] < t <= round(c["score"], 5))
+    assert crossings >= 1, "ningún caso en que el redondeo a 5 decimales cambie el lado del umbral"
 
 
 # --- composición y estructura ----------------------------------------------------------------------
@@ -125,7 +123,7 @@ def test_golden_composition(cases, cfg):
     gcfg = cfg["golden"]
     assert strata.count("fraud") == gcfg["fraud"]
     assert strata.count("above_review") == gcfg["above_review"]
-    assert 0 < strata.count("boundary") <= gcfg["boundary"]
+    assert 1 <= strata.count("boundary") <= 4 * gcfg["boundary_per_side"]
     assert len(cases) == gcfg["total"]
     assert len({c["case_id"] for c in cases}) == len(cases)
 
