@@ -19,6 +19,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "amlgen": ("verabank_sim.amlgen.cli", "generador AML con verdad de terreno (data/aml)"),
     "replay": ("verabank_sim.replay.cli", "reproduce la partición de prueba de PaySim por la API (D1, D10, D11)"),
     "aml": ("verabank_sim.aml.cli", "envía data/aml/transfers.jsonl por la API y aprueba las revisiones (D12)"),
+    "aml-eval": ("verabank_sim.aml.eval_cli", "evalúa las alertas AML contra la verdad de terreno de amlgen (D12)"),
     "watch": ("verabank_sim.watch", "vigila el latido del simulador mientras chaos espera (lo usa make chaos-rail)"),
 }
 
