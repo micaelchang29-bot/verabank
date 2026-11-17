@@ -339,6 +339,24 @@ class RemoteScorerTest {
 
         assertThat(elapsedMs).as("no espera la respuesta de risk-service").isLessThan(200);
         await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> server.verify(1, getRequestedFor(urlEqualTo(READY))));
+        // Espera a que el hilo de fondo termine sus POST: si no, seguiría escribiendo en el servidor de la prueba siguiente.
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> server.verify(5, postRequestedFor(urlEqualTo(PATH))));
+    }
+
+    @Test
+    void warmUpRetriesUntilRiskServiceIsReadyThenPostsAndStops() {
+        // En Compose risk-scoring arranca después de transfer-service: el primer intento ve la readiness caída.
+        server.stubFor(get(urlEqualTo(READY)).inScenario("arranque").whenScenarioStateIs("Started")
+                .willReturn(aResponse().withStatus(503)).willSetStateTo("listo"));
+        server.stubFor(get(urlEqualTo(READY)).inScenario("arranque").whenScenarioStateIs("listo")
+                .willReturn(aResponse().withStatus(200)));
+        server.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(400).withBody("{}")));
+
+        scorer.warmUpUntilReady();
+
+        server.verify(2, getRequestedFor(urlEqualTo(READY)));   // un intento fallido y uno bueno; después se detiene
+        server.verify(5, postRequestedFor(urlEqualTo(PATH)));   // los POST solo van tras una readiness correcta
+        assertThat(scorer.circuitBreaker().getMetrics().getNumberOfBufferedCalls()).isZero();
     }
 
     @AfterEach

@@ -54,6 +54,8 @@ public class RemoteScorer implements FraudScorer {
     /** Tipo que risk-service rechaza con 400: el calentamiento recorre la ruta POST sin puntuar ni guardar nada. */
     static final String WARM_UP_TRANSFER_TYPE = "WARM_UP";
     private static final int WARM_UP_POSTS = 5;
+    static final int WARM_UP_RETRY_SECONDS = 2;
+    static final int WARM_UP_MAX_ATTEMPTS = 90;
     private static final String WARM_UP_RESPONSE = "{\"score\":0.01234,\"decision\":\"APPROVE\",\"model_version\":\"warm-up\"}";
 
     private final ScoringProperties properties;
@@ -101,20 +103,45 @@ public class RemoteScorer implements FraudScorer {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void warmUpOnStartup() {
-        Thread.ofPlatform().daemon().name("scoring-warm-up").start(this::warmUp);
+        Thread.ofPlatform().daemon().name("scoring-warm-up").start(this::warmUpUntilReady);
     }
 
     /**
-     * El calentamiento (síncrono). Nunca lanza: cualquier fallo se ignora con un INFO. Hace una petición GET a la
+     * Reintenta el calentamiento hasta que risk-service responda lista (en Compose arranca después de este servicio):
+     * una vez por {@value #WARM_UP_RETRY_SECONDS} s, hasta {@value #WARM_UP_MAX_ATTEMPTS} intentos.
+     */
+    void warmUpUntilReady() {
+        for (int attempt = 1; attempt <= WARM_UP_MAX_ATTEMPTS; attempt++) {
+            if (warmUp()) {
+                return;
+            }
+            try {
+                TimeUnit.SECONDS.sleep(WARM_UP_RETRY_SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        log.info("calentamiento del cliente de scoring: risk-service no estuvo listo tras {} intentos; se deja en frío",
+                WARM_UP_MAX_ATTEMPTS);
+    }
+
+    /**
+     * El calentamiento (síncrono, un intento). Nunca lanza: cualquier fallo se ignora con un INFO y devuelve false. Hace una petición GET a la
      * readiness y {@value #WARM_UP_POSTS} POST a la ruta de scoring con un {@code transfer_type} inválido (risk-service
      * responde 400 y no puntúa ni escribe nada), y recorre el armado del cuerpo y la lectura de una respuesta. Así la
      * primera solicitud real no paga clases, JIT ni la conexión dentro de sus 120 ms.
      */
-    void warmUp() {
+    boolean warmUp() {
         long start = System.nanoTime();
         try {
             HttpRequest request = HttpRequest.newBuilder(readiness).timeout(WARM_UP_TIMEOUT).GET().build();
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
+            if (response.statusCode() != 200) {
+                log.info("calentamiento del cliente de scoring: risk-service aún no está listo (readiness {})",
+                        response.statusCode());
+                return false;
+            }
             int posted = 0;
             for (int i = 0; i < WARM_UP_POSTS; i++) {
                 ScoreRequest probe = new ScoreRequest(UUID.randomUUID(), "warm-up-source", "warm-up-dest",
@@ -128,12 +155,14 @@ public class RemoteScorer implements FraudScorer {
             }
             log.info("calentamiento del cliente de scoring: risk-service respondió {} a la readiness y se enviaron {} POST en {} ms",
                     response.statusCode(), posted, millisSince(start));
+            return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.info("calentamiento del cliente de scoring interrumpido; se ignora");
         } catch (Exception e) {
             log.info("calentamiento del cliente de scoring falló ({}); se ignora y el servicio arranca igual", e.toString());
         }
+        return false;
     }
 
     @Override
