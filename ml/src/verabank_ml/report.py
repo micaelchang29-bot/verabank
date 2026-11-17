@@ -145,8 +145,11 @@ def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
     versions = f"`{v}`; evaluado en `test` como `{test['model_version']}`" if tested else f"`{v}`"
     out += [f"**{winner}** ({versions}), conjunto A. Motivo: {why}.", ""]
     if tested:
-        out += [f"`{v}` es un reentrenamiento determinista de `{test['model_version']}` con el mismo `model_sha256` y las "
-                "mismas probabilidades en `valid` (ver ADR-11), así que la evaluación de `test` sigue siendo válida.", ""]  # fmt: skip
+        explanation = (
+            f"`{v}` es un reentrenamiento determinista de `{test['model_version']}` con el mismo `model_sha256` y las "
+            "mismas probabilidades en `valid` (ver ADR-11), así que la evaluación de `test` sigue siendo válida."
+        )
+        out += [explanation, ""]
     for warning in selection.get("warnings", []):
         out += [f"> **Advertencia:** {warning}.", ""]
     out.append(md_table(["Criterio", "Regla", "Valor", "Resultado"],
