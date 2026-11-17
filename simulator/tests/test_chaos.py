@@ -11,7 +11,7 @@ from decimal import Decimal
 import pytest
 
 from verabank_sim.chaos import cli as chaos_cli
-from verabank_sim.chaos.report import Report, evaluate, format_report
+from verabank_sim.chaos.report import Report, evaluate, expected_failed, failed_tolerance_points, format_report
 from verabank_sim.chaos.runner import (
     InsufficientBudget,
     allocate_sources,
@@ -126,11 +126,71 @@ def test_caso_feliz_pasa_con_failed_cerca_del_reject():
     assert "OK" in format_report(report, [])
 
 
-def test_failed_a_tres_puntos_o_mas_del_reject_falla():
+def test_failed_muy_lejos_del_esperado_falla():
     report = run(FakeApi(fail_every=0), make_plan(n=200), reject=0.2)   # 0 % FAILED frente a 20 %
-    assert any("puntos del REJECT" in p for p in evaluate(report))
+    assert any("puntos del esperado" in p for p in evaluate(report))
     report = run(FakeApi(fail_every=5), make_plan(n=200), reject=0.0)   # 20 % FAILED frente a 0 %
-    assert any("puntos del REJECT" in p for p in evaluate(report))
+    assert any("puntos del esperado" in p for p in evaluate(report))
+
+
+def _report(n, failed, reject, lost):
+    report = Report(n=n, reject_rate=reject, lost_rate=lost, created=n)
+    report.states.update({"FAILED": failed, "COMPLETED": n - failed})
+    return report
+
+
+def _ok(report):
+    return not any("puntos del esperado" in p for p in evaluate(report))
+
+
+def test_el_esperado_es_reject_por_uno_menos_lost_mas_lost():
+    assert expected_failed(0.2, 0.01) == pytest.approx(0.208)
+    assert expected_failed(0.0, 0.05) == pytest.approx(0.05)
+    assert expected_failed(0.0, 0.0) == 0.0
+    assert expected_failed(1.0, 0.3) == pytest.approx(1.0)
+
+
+def test_n2000_reject_02_lost_001_acepta_hasta_cuatro_sigmas_y_no_mas():
+    tol = failed_tolerance_points(2000, 0.208)
+    assert tol == pytest.approx(3.63, abs=0.01)             # 4·√(0,208·0,792/2000) = 3,63 puntos
+    assert _ok(_report(2000, 416, 0.2, 0.01))                # 20,8 %: justo el esperado
+    assert _ok(_report(2000, 480, 0.2, 0.01))                # 24,0 %: 3,2 puntos, dentro
+    assert _ok(_report(2000, 350, 0.2, 0.01))                # 17,5 %: 3,3 puntos por debajo, dentro
+    assert not _ok(_report(2000, 495, 0.2, 0.01))            # 24,75 %: 3,95 puntos, fuera
+    assert not _ok(_report(2000, 340, 0.2, 0.01))            # 17,0 %: 3,8 puntos por debajo, fuera
+
+
+def test_reject_0_lost_005_espera_5_por_ciento_y_no_acepta_0():
+    # Con la regla vieja (REJECT ± 3 puntos) el 5 % legítimo de instrucciones perdidas era un falso fallo
+    # casi seguro y un 0 % pasaba sin que nadie cancelara nada.
+    assert _ok(_report(2000, 100, 0.0, 0.05))                # 5,0 %
+    assert _ok(_report(2000, 130, 0.0, 0.05))                # 6,5 %: 1,5 puntos
+    assert not _ok(_report(2000, 150, 0.0, 0.05))            # 7,5 %: 2,5 puntos > 4σ = 1,95
+    assert not _ok(_report(2000, 0, 0.0, 0.05))              # 0 %: ninguna cancelación
+
+
+def test_reject_0_lost_0_tiene_el_piso_de_un_punto():
+    assert failed_tolerance_points(2000, 0.0) == 1.0
+    assert _ok(_report(2000, 0, 0.0, 0.0))
+    assert _ok(_report(2000, 20, 0.0, 0.0))                  # 1,0 %: el borde
+    assert not _ok(_report(2000, 30, 0.0, 0.0))              # 1,5 %
+
+
+def test_la_holgura_crece_cuando_n_baja():
+    assert failed_tolerance_points(200, 0.208) > failed_tolerance_points(2000, 0.208) > 1.0
+    assert failed_tolerance_points(200, 0.208) == pytest.approx(11.5, abs=0.05)
+
+
+def test_chaos_pasa_lost_rate_al_informe_y_al_cli():
+    from verabank_sim import cli
+
+    args = cli.build_parser().parse_args(["chaos", "--reject-rate", "0.2", "--lost-rate", "0.01"])
+    assert (args.reject_rate, args.lost_rate) == (0.2, 0.01)
+    assert cli.build_parser().parse_args(["chaos"]).lost_rate == 0.0
+    report = run_chaos(FakeApi(fail_every=0), make_plan(n=20), 0.0, concurrency=4, timeout_s=30.0,
+                       poll_interval_s=0, lost_rate=0.05)
+    assert report.lost_rate == 0.05
+    assert "esperado 5.00%" in format_report(report, [])
 
 
 def test_failed_dentro_de_la_tolerancia_pasa():

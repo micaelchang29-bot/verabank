@@ -180,8 +180,8 @@ def _poll(api: Api, transfer_id: str) -> tuple[str, str]:
 
 def run_chaos(api: Api, plan: list[Planned], reject_rate: float, concurrency: int, timeout_s: float,
               poll_interval_s: float = 1.0, clock: Callable[[], float] = time.monotonic,
-              sleep: Callable[[float], None] = time.sleep) -> Report:
-    report = Report(n=len(plan), reject_rate=reject_rate)
+              sleep: Callable[[float], None] = time.sleep, lost_rate: float = 0.0) -> Report:
+    report = Report(n=len(plan), reject_rate=reject_rate, lost_rate=lost_rate)
     report.replays_expected = sum(1 for p in plan if p.replay)
     report.reuse_expected = sum(1 for p in plan if p.reuse)
     started = clock()

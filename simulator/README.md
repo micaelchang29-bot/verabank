@@ -104,11 +104,11 @@ Requiere Docker (Postgres y Kafka del perfil core), Java 21, `uv` y `.env` con `
 
 | Variable | Defecto | Efecto |
 |---|---|---|
-| `REJECT` | `0` | `--reject-rate` del rail; además fija el % de `FAILED` esperado (±3 puntos) |
+| `REJECT` | `0` | `--reject-rate` del rail; con `LOST` fija el % de `FAILED` esperado (ver `chaos`) |
 | `DUP` | `0` | `--dup-rate` del rail |
 | `DUP_MODE` | `same-id` | `same-id` o `new-id` (ver `rail`) |
 | `SILENT` | `0.02` | `--silent-rate` del rail |
-| `LOST` | `0.01` | `--lost-rate` del rail |
+| `LOST` | `0.01` | `--lost-rate` del rail; también se pasa a `chaos` para calcular el `FAILED` esperado |
 | `DELAY` | `20:300` | `--delay-ms` del rail |
 | `N` | `2000` | Transferencias a crear |
 
@@ -129,12 +129,12 @@ Los defaults de `SILENT`, `LOST` y `DELAY` son los del caos y difieren de los de
 ### `chaos`
 
 ```bash
-cd simulator && uv run python -m verabank_sim chaos --n 2000 --concurrency 20 --timeout 180 --reject-rate 0.2
+cd simulator && uv run python -m verabank_sim chaos --n 2000 --concurrency 20 --timeout 180 --reject-rate 0.2 --lost-rate 0.01
 ```
 
 La clave de API sale de la primera entrada de `VERABANK_API_KEYS` del entorno (`make chaos-rail` la
 exporta desde `.env`); no se imprime ni se registra. La URL es `http://localhost:$SERVER_PORT`
-(`--base-url`). Otras banderas: `--replay-rate` (0.05), `--reuse-rate` (0.01) y `--seed`.
+(`--base-url`). Otras banderas: `--lost-rate` (0.0), `--replay-rate` (0.05), `--reuse-rate` (0.01) y `--seed`.
 
 - **Orígenes y montos.** Cuentas semilla PREMIUM y PYME (19 a 30), montos de 1.00 a 10.00. Antes de
   empezar lee el saldo disponible (`GET /api/v1/accounts/{id}`) y reparte las solicitudes sin
@@ -148,9 +148,12 @@ exporta desde `.env`); no se imprime ni se registra. La URL es `http://localhost
   `REJECTED`, o venza `--timeout` (contado desde el inicio).
 - **Éxito (código 0).** Todas las creaciones con 201; reenvíos y reusos como se esperan; ninguna
   transferencia sin estado final; ninguna `REJECTED` (nada debe fallar por saldo ni por riesgo); y
-  `FAILED` a menos de 3 puntos del `REJECT` pedido. Los rechazos pedidos, las instrucciones perdidas
-  que acaban canceladas y los silencios que revelan un rechazo producen `FAILED`; con los defaults de
-  caos eso suma ≈ `REJECT` + `LOST`.
+  `FAILED` cerca del esperado. Los rechazos pedidos, las instrucciones perdidas que acaban canceladas y
+  los silencios que revelan un rechazo producen `FAILED`. Esperado = `REJECT`·(1−`LOST`) + `LOST`
+  (los rechazos se reparten entre las instrucciones que sí llegan al rail). Falla si
+  |observado − esperado| > máx(1 punto, 4·√(p(1−p)/N)), con p el esperado y N las transferencias:
+  la holgura sigue a N y a `LOST` en vez de ser fija (con N=2000, `REJECT` 0.2 y `LOST` 0.01 son
+  ±3.63 puntos; con `REJECT` 0 y `LOST` 0.05, ±1.95).
 
 ### Comprobaciones posteriores
 

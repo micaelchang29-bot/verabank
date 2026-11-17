@@ -76,7 +76,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base-url", default=f"http://localhost:{port}",
                         help="URL de transfer-service (http://localhost:$SERVER_PORT)")
     parser.add_argument("--reject-rate", type=_rate, default=0.0,
-                        help="REJECT pedido al rail: el % de FAILED debe quedar a menos de 3 puntos (0.0)")
+                        help="REJECT pedido al rail (0.0); con --lost-rate fija el % de FAILED esperado")
+    parser.add_argument("--lost-rate", type=_rate, default=0.0,
+                        help="LOST pedido al rail (0.0): cada instrucción perdida acaba en FAILED; esperado = "
+                             "REJECT·(1−LOST)+LOST, con holgura máx(1 punto, 4·√(p(1−p)/N))")
     parser.add_argument("--replay-rate", type=_rate, default=0.05,
                         help="fracción que se reenvía idéntica: 200 + Idempotent-Replayed (0.05)")
     parser.add_argument("--reuse-rate", type=_rate, default=0.01,
@@ -101,9 +104,9 @@ def run(args: argparse.Namespace) -> int:
             log.error("%s", exc)
             return 2
         plan = build_plan(args.n, args.replay_rate, args.reuse_rate, sources, amounts, rng, datetime.now(UTC))
-        log.info("chaos: n=%d concurrencia=%d timeout=%ss reject=%s semilla=%d",
-                 args.n, args.concurrency, args.timeout, args.reject_rate, seed)
-        report = run_chaos(api, plan, args.reject_rate, args.concurrency, args.timeout)
+        log.info("chaos: n=%d concurrencia=%d timeout=%ss reject=%s lost=%s semilla=%d",
+                 args.n, args.concurrency, args.timeout, args.reject_rate, args.lost_rate, seed)
+        report = run_chaos(api, plan, args.reject_rate, args.concurrency, args.timeout, lost_rate=args.lost_rate)
     finally:
         api.close()
     problems = evaluate(report)

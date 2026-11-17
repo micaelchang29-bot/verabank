@@ -56,7 +56,7 @@ echo "rail-sim listo (pid $SIM_PID)"
 rc=0
 echo "== chaos: n=$N concurrencia=$CONCURRENCY timeout=${CHAOS_TIMEOUT}s"
 (cd "$SIM_DIR" && uv run --no-sync python -m verabank_sim chaos --n "$N" --concurrency "$CONCURRENCY" \
-  --timeout "$CHAOS_TIMEOUT" --reject-rate "$REJECT") || { echo "FALLO: chaos" >&2; rc=1; }
+  --timeout "$CHAOS_TIMEOUT" --reject-rate "$REJECT" --lost-rate "$LOST") || { echo "FALLO: chaos" >&2; rc=1; }
 
 stop_sim
 

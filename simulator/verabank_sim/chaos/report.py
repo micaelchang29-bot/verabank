@@ -2,18 +2,35 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from dataclasses import dataclass, field
 
 FINAL_STATES = frozenset({"COMPLETED", "FAILED", "REJECTED"})
-# Tolerancia (en puntos porcentuales) entre el % de FAILED y el REJECT pedido al rail.
-FAILED_TOLERANCE_POINTS = 3.0
+# El % de FAILED esperado es REJECT·(1−LOST)+LOST: los rechazos se reparten entre las instrucciones que
+# llegan al rail y cada instrucción perdida acaba cancelada (FAILED). La holgura es la mayor entre un piso
+# de 1 punto y 4 desviaciones típicas de una binomial de N transferencias.
+FAILED_FLOOR_POINTS = 1.0
+FAILED_SIGMAS = 4.0
+
+
+def expected_failed(reject_rate: float, lost_rate: float) -> float:
+    """Fracción esperada de FAILED."""
+    return reject_rate * (1.0 - lost_rate) + lost_rate
+
+
+def failed_tolerance_points(n: int, p: float) -> float:
+    """Holgura (puntos porcentuales) alrededor del esperado: máx(1 punto, 4·√(p(1−p)/N))."""
+    if n < 1:
+        return FAILED_FLOOR_POINTS
+    return max(FAILED_FLOOR_POINTS, 100.0 * FAILED_SIGMAS * math.sqrt(p * (1.0 - p) / n))
 
 
 @dataclass
 class Report:
     n: int
     reject_rate: float
+    lost_rate: float = 0.0
     created: int = 0                                  # POST originales con 201
     create_errors: list[str] = field(default_factory=list)
     replays_expected: int = 0
@@ -55,10 +72,13 @@ def evaluate(report: Report) -> list[str]:
         problems.append(f"estados no finales o desconocidos: {dict(unexpected)}")
     if report.states.get("REJECTED", 0):
         problems.append(f"{report.states['REJECTED']} transferencias REJECTED: ninguna debía fallar por saldo ni riesgo")
-    gap = abs(report.failed_pct - report.reject_rate * 100.0)
-    if gap >= FAILED_TOLERANCE_POINTS:
-        problems.append(f"FAILED {report.failed_pct:.2f}% se aleja {gap:.2f} puntos del REJECT pedido "
-                        f"({report.reject_rate * 100:.2f}%); el máximo es {FAILED_TOLERANCE_POINTS} puntos")
+    expected = expected_failed(report.reject_rate, report.lost_rate)
+    tolerance = failed_tolerance_points(report.n, expected)
+    gap = abs(report.failed_pct - expected * 100.0)
+    if gap > tolerance:
+        problems.append(f"FAILED {report.failed_pct:.2f}% se aleja {gap:.2f} puntos del esperado "
+                        f"{expected * 100:.2f}% (REJECT {report.reject_rate * 100:.2f}%, LOST "
+                        f"{report.lost_rate * 100:.2f}%); el máximo es {tolerance:.2f} puntos")
     return problems
 
 
@@ -74,8 +94,10 @@ def format_report(report: Report, problems: list[str]) -> str:
     for state in sorted(report.states):
         lines.append(f"  {state:<10} {report.states[state]:>6}")
     lines.append(f"  {'sin final':<10} {len(report.non_final):>6}")
-    lines.append(f"FAILED: {report.failed_pct:.2f}% (REJECT pedido {report.reject_rate * 100:.2f}%, "
-                 f"tolerancia {FAILED_TOLERANCE_POINTS:.0f} puntos)")
+    expected = expected_failed(report.reject_rate, report.lost_rate)
+    lines.append(f"FAILED: {report.failed_pct:.2f}% (esperado {expected * 100:.2f}% = REJECT "
+                 f"{report.reject_rate * 100:.2f}%·(1−LOST) + LOST {report.lost_rate * 100:.2f}%, "
+                 f"tolerancia ±{failed_tolerance_points(report.n, expected):.2f} puntos)")
     lines.append(f"duración: {report.elapsed_s:.1f} s")
     if problems:
         lines.append("FALLO:")
