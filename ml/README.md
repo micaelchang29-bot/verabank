@@ -113,6 +113,85 @@ Todas las columnas de features son `float64`.
 
 Medidas (12 CPU, PaySim completo): conjunto A en 24 s y 4,6 GB de memoria máxima; B en 22 s y 4,6 GB.
 
+## Contrato con el servicio de scoring
+
+Es lo que implementa el servicio Java (`risk-service`) para que su score y sus features coincidan con los de
+Python. Lo comprueban `ml/artifacts/golden.jsonl` (1.000 casos con historia) y
+`contracts/fixtures/feature_scenarios.json` (14 escenarios pequeños; `make ml-fixtures`). Las
+tolerancias son 1e-9 (relativa y absoluta) para las features y 1e-5 para el score.
+
+**(a) Redondeo del score antes de comparar con un umbral.**
+
+- Regla: `rounded = round(score, 5)` y luego `rounded >= t_block` → `BLOCK`; si no, `rounded >= t_review` →
+  `REVIEW`; si no, `APPROVE`. Está en `ml/src/verabank_ml/golden.py:32` (`decide_score`, líneas 30-35) y se
+  repite en `thresholds.json:decision_rule`. Los umbrales de `thresholds.json` ya tienen 5 decimales.
+- Función: el `round(x, ndigits)` incorporado de Python 3, sobre un `float` (no `np.round`).
+- Modo: mitad al par (`ROUND_HALF_EVEN`) sobre el valor decimal **exacto** del `double`, no sobre su
+  representación impresa. Es equivalente a `Decimal(x).quantize(Decimal("0.00001"), ROUND_HALF_EVEN)`; se
+  comprobó con 300.000 scores aleatorios en float32 sin ningún desacuerdo. En Java:
+  `new BigDecimal(score).setScale(5, RoundingMode.HALF_EVEN).doubleValue()`. No sirven `Math.round(x * 1e5) / 1e5`
+  (redondea la mitad hacia arriba y multiplica con error) ni `new BigDecimal(Double.toString(x))` (parte del
+  texto más corto, no del valor exacto).
+- Tipo numérico: la salida `probabilities` de ONNX Runtime es `float32`; se promueve a `double` (conversión
+  exacta, sin pasar por texto) y se redondea ese `double`. El resultado se compara con los umbrales leídos
+  como `double` de `thresholds.json`.
+- El entrenamiento fija los umbrales con `np.round` (`ml/src/verabank_ml/metrics.py:21`). Con los scores de
+  `valid` ambos coinciden en todas las filas (`ml/reports/golden_selection.json`:
+  `rounding_numpy_vs_python_disagreements_in_valid` = 0), pero la regla de servicio es la de Python `round`.
+- El `score` de `golden.jsonl` es el del modelo original (`float64`); ONNX Runtime lo reproduce con diferencia
+  < 1e-5 (máxima observada 1,8e-7) y las 1.000 decisiones salen iguales con ambos. Los escenarios guardan
+  `expected_score` sin redondear.
+
+**(b) Tiempo.** `occurred_at = sim_epoch + (step - 1) h` con `sim_epoch = 2026-01-01T00:00:00Z`
+(`config.yaml`). Es decir, `step = horas enteras desde sim_epoch + 1` y
+`hour = (step - 1) % 24`, que es la hora UTC de `occurred_at`. Los eventos del entrenamiento, del golden y de
+los escenarios están alineados a la hora exacta. `hour_sin = sin(2π · hour / 24)` y
+`hour_cos = cos(2π · hour / 24)`, en `double`.
+
+**(c) Ventanas.** Cerradas por la izquierda y estrictamente anteriores a la solicitud: una ventana de `w` horas
+cubre `[t - w, t)`, con `t = occurred_at` de la solicitud. Con tiempos alineados a la hora: la ventana de 1 h
+es el paso `s-1`; la de 24 h son los pasos `s-24` a `s-1`; un evento en `s-25` no cuenta. Las filas con
+`occurred_at >= t` (incluidas las del mismo paso) nunca cuentan, así que dos solicitudes de la misma hora no se
+ven entre sí. «Todo el historial» es toda fila previa (`occurred_at < t`), sin límite de ventana. La historia son
+los intentos de los cuatro tipos del modelo (incluidos los rechazados y los pagos a comercios); CASH_IN no es
+historia. Ninguna feature usa etiquetas.
+
+**(d) Relleno de una feature sin historia.**
+
+| Feature | Sin historia vale |
+|---|---|
+| `dst_in_count_24h`, `dst_in_sum_24h`, `dst_distinct_src_24h` | 0 |
+| `dst_seen_before` | 0 |
+| `dst_age_hours` | 0 (destino no visto) |
+| `src_out_count_1h`, `src_out_count_24h`, `src_out_sum_24h` | 0 |
+| `is_new_beneficiary` | 1 |
+
+El resto (`amount`, `log_amount`, `type_*`, `hour_*`) sale solo de la solicitud. `dst_age_hours` es la diferencia
+de pasos con la primera aparición del destino (horas enteras). Booleanos como `0.0` / `1.0`.
+
+**(e) Orden y nombres de las columnas.** Entrada `features`, `float32` `[None, 17]`; las features se calculan
+en `double` y se convierten a `float32` justo antes de llamar al modelo. Salida: `probabilities`, columna 1.
+
+| # | Columna | # | Columna |
+|---|---|---|---|
+| 0 | `amount` | 9 | `dst_in_sum_24h` |
+| 1 | `log_amount` | 10 | `dst_distinct_src_24h` |
+| 2 | `type_TRANSFER` | 11 | `dst_seen_before` |
+| 3 | `type_CASH_OUT` | 12 | `dst_age_hours` |
+| 4 | `type_PAYMENT` | 13 | `src_out_count_1h` |
+| 5 | `type_DEBIT` | 14 | `src_out_count_24h` |
+| 6 | `hour_sin` | 15 | `src_out_sum_24h` |
+| 7 | `hour_cos` | 16 | `is_new_beneficiary` |
+| 8 | `dst_in_count_24h` | | |
+
+`amount` es la cadena decimal de la solicitud convertida a `double`; `log_amount = ln(1 + amount)` (`log1p`).
+Las columnas `type_*` son 1.0 en la del tipo de la solicitud y 0.0 en las demás. La fuente de verdad del orden
+es `thresholds.json:feature_order` (= `contracts/features.yaml`).
+
+**Challenger.** `ml/artifacts/challenger/model.onnx` usa las mismas entradas, salidas y `feature_order`.
+No tiene umbrales ni decisión: el servicio solo guarda su score en sombra (`golden_challenger.jsonl` da su
+score para los mismos `case_id` del golden).
+
 ## Modelos, umbrales y evaluación
 
 Método (no negociable): hiperparámetros, umbrales y selección usan solo `valid`; `test` se evalúa una vez, con

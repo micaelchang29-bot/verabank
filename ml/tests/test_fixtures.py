@@ -219,3 +219,21 @@ def test_no_paysim_accounts_or_prohibited_columns_in_artifacts_and_fixtures():
                 assert column_name not in text, f"{column_name} en {label}"
     for _, _, event in all_events(json.loads(OUT_PATH.read_text())):
         assert not PAYSIM_ACCOUNT.match(event["source_ref"]) and not PAYSIM_ACCOUNT.match(event["dest_ref"])
+
+
+# --- el README es el contrato que implementa el servicio Java --------------------------------------
+
+
+def test_readme_contract_section_lists_the_columns_in_order(thresholds):
+    text = (REPO_ROOT / "ml" / "README.md").read_text()
+    start = text.index("## Contrato con el servicio de scoring")
+    section = text[start : text.index("\n## ", start + 1)]
+    cells = re.findall(r"^\| (\d+) \| `(\w+)` \| (?:(\d+) \| `(\w+)` )?\|", section, flags=re.MULTILINE)
+    listed = {}
+    for left_index, left, right_index, right in cells:
+        listed[int(left_index)] = left
+        if right_index:
+            listed[int(right_index)] = right
+    assert [listed[i] for i in range(len(listed))] == thresholds["feature_order"]
+    for required in ("ROUND_HALF_EVEN", "golden.py:32", "[t - w, t)", "(step - 1) h", "% 24"):
+        assert required in section, required
