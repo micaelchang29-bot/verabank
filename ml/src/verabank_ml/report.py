@@ -141,7 +141,12 @@ def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
     manual = selection.get("manual_decision")
     why = f"{selection['reason']}" + (f"; decisión manual: {manual['reason']}" if manual else "")
     v = thresholds["model_version"] if thresholds else "(sin thresholds.json)"
-    out += [f"**{winner}** (`{v}`), conjunto A. Motivo: {why}.", ""]
+    tested = test is not None and test["model_version"] != v
+    versions = f"`{v}`; evaluado en `test` como `{test['model_version']}`" if tested else f"`{v}`"
+    out += [f"**{winner}** ({versions}), conjunto A. Motivo: {why}.", ""]
+    if tested:
+        out += [f"`{v}` es un reentrenamiento determinista de `{test['model_version']}` con el mismo `model_sha256` y las "
+                "mismas probabilidades en `valid` (ver ADR-11), así que la evaluación de `test` sigue siendo válida.", ""]  # fmt: skip
     for warning in selection.get("warnings", []):
         out += [f"> **Advertencia:** {warning}.", ""]
     out.append(md_table(["Criterio", "Regla", "Valor", "Resultado"],
@@ -204,7 +209,9 @@ def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
     if test is None:
         out += ["Aún no se ha ejecutado `make ml-eval-test`.", ""]
     else:
-        out += [f"Modelo: `{test['model_version']}`, umbrales congelados de valid"
+        same = "" if test["model_version"] == v else (
+            f"; el modelo servido, `{v}`, tiene los mismos pesos (mismo `model_sha256`), por lo que vale para ambos")
+        out += [f"Modelo evaluado: `{test['model_version']}`, umbrales congelados de valid{same}"
                 + (" (**reevaluado con --force-test**)" if test.get("test_reevaluated") else "") + ".", ""]  # fmt: skip
         n24 = test["intervals"][main]["n_blocks"]
         out.append(

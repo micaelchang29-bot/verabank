@@ -3,7 +3,9 @@
 Generado por `make ml-report`. Hiperparámetros, umbrales y selección usan solo `valid`; `test` se evalúa una vez con todo congelado.
 
 ## Modelo servido
-**xgb** (`fraud-xgb/5`), conjunto A. Motivo: el boosting cumple los cuatro criterios.
+**xgb** (`fraud-xgb/5`; evaluado en `test` como `fraud-xgb/4`), conjunto A. Motivo: el boosting cumple los cuatro criterios.
+
+`fraud-xgb/5` es un reentrenamiento determinista de `fraud-xgb/4` con el mismo `model_sha256` y las mismas probabilidades en `valid` (ver ADR-11), así que la evaluación de `test` sigue siendo válida.
 
 > **Advertencia:** valid tiene 6 bloques de 24 pasos (menos de 10): los intervalos por bootstrap de bloques son poco fiables.
 
@@ -96,7 +98,7 @@ Decisión: `score = round(p, 5)`; BLOCK si `score >= t_block`; si no, REVIEW si 
 
 ## Métricas en test (pasos 575–744, evaluado una vez)
 
-Modelo: `fraud-xgb/4`, umbrales congelados de valid.
+Modelo evaluado: `fraud-xgb/4`, umbrales congelados de valid; el modelo servido, `fraud-xgb/5`, tiene los mismos pesos (mismo `model_sha256`), por lo que vale para ambos.
 
 | Métrica | Valor | Intervalo 95 % (bloques de 24) |
 |---|---|---|
