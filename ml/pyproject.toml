@@ -1,0 +1,49 @@
+[project]
+name = "verabank-ml"
+version = "0.1.0"
+description = "Pipeline de ML de VeraBank: entrenamiento, exportación a ONNX y explicabilidad del modelo de fraude"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pandas",
+    "numpy",
+    "pyarrow",
+    "scikit-learn",
+    "xgboost==3.4.1",
+    "mlflow",
+    "skl2onnx",
+    "onnx",
+    "shap",
+    "scipy",
+    "pyyaml",
+    "matplotlib",
+    "onnxmltools==1.16.0",
+    "onnxruntime==1.32.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "ipykernel",
+    "nbconvert",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/verabank_ml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "data: necesita PaySim en data/raw/ (make ml-test lo excluye)",
+    "slow: prueba lenta",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
