@@ -116,3 +116,20 @@ T-13 con los 1.000 casos de `golden.jsonl` y de `golden_challenger.jsonl` y con 
 hilos; artefactos alterados; sombra; y que el rol `stream` no carga el modelo ni el rol `scoring` abre consumidores. Con
 Kafka real, el rol `stream`: T-15, bordes de las tres reglas, versiones activas, exención, reentrega, DLT y reintentos,
 etiquetas, API de alertas con auditoría, contratos y latencia evento → alerta (200 eventos, `target/latency-report.txt`).
+
+## Despliegue en Compose y prueba de carga
+
+`make up` levanta todo en Compose (perfiles `core`, `risk` y `sim`): PostgreSQL, Kafka, `transfer-service` con
+`VERABANK_SCORING_MODE=remote`, `risk-scoring` (`VERABANK_ROLE=scoring`, contenedor 8081, host `RISK_SCORING_PORT`=8083
+porque el 8081 del host es de `transfer-service`), `risk-stream` (8082) y el rail simulado. Las dos imágenes de risk son la
+misma (`verabank/risk-service:dev`). Healthchecks con `/q/health/ready`; límites de memoria: scoring 768 MB (montículo de
+256 MB), stream 640 MB. `transfer-service` no espera a `risk-scoring` (si no responde decide el fallback; ADR-04) porque sus
+migraciones de core son las que `up` necesita antes de migrar risk. `make up-core` sigue arrancando `transfer-service` en el
+host con scoring `stub` (lo usa la CI).
+
+- `make perf-scoring [DURATION=30m] [PEAK=1]`: k6 (`perf/scoring.js`, imagen `grafana/k6:1.4.2`) contra `risk-scoring` dentro de
+  la red de Compose; salidas en `data/perf/`.
+- `make fallback-demo`: para `risk-scoring`, 500 filas del replay deben salir `FALLBACK`; al volver, mide cuánto tarda en
+  haber una tanda entera con `MODEL`.
+- Resultados medidos: `docs/resultados/fase-4.md`. Decisiones: `docs/adr/ADR-12.md`.
+- El rol `risk_svc` tiene `statement_timeout = 250ms` en el servidor (respaldo del límite de 100 ms del cliente).
