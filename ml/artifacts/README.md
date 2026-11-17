@@ -65,6 +65,12 @@ make ml-test       # paridad T-13 sobre estos archivos (corre en la CI, sin dato
 ```
 
 `make ml-train` reescribe `thresholds.json` sin `model_sha256`; hay que volver a ejecutar `make ml-export`.
+
+**Procedencia.** `provenance.git_commit` de `thresholds.json` (y `git_commit` de `manifest.json`) es el commit
+con el que se entrenó, no el commit que contiene los artefactos: la procedencia se registra antes de commitear y un
+commit no puede nombrarse a sí mismo. Un sufijo `-dirty` indicaría un entrenamiento con cambios sin commitear en
+`ml/` o `contracts/`; las pruebas lo rechazan. Los hashes de `config.yaml`, `features.yaml` y del CSV sí son los
+vigentes.
 El exportador fija `graph.name` del grafo ONNX (los conversores ponen un UUID aleatorio) para que el archivo sea
 reproducible byte a byte.
 
