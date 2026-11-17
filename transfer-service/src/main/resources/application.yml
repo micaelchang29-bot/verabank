@@ -16,7 +16,7 @@ spring:
       maximum-pool-size: 20
       connection-timeout: 5000
   flyway:
-    # db/README.md: historial en flyway_transfer; core (V1–V8) y audit (V9–V12) en una corrida.
+    # db/README.md: historial en flyway_transfer; core (V1–V8) y audit (V9–V13) en una corrida.
     default-schema: flyway_transfer
     schemas: flyway_transfer
     create-schemas: true

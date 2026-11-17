@@ -17,7 +17,7 @@ class MigrationIT extends IntegrationTest {
                 WHERE version IS NOT NULL AND success ORDER BY installed_rank""")
                 .query(String.class).list();
         assertThat(versions).containsExactly(
-                "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12");
+                "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13");
     }
 
     @Test
@@ -32,5 +32,20 @@ class MigrationIT extends IntegrationTest {
                 "flyway_transfer:" + Infra.TRANSFER_USER);
         assertThat(jdbc.sql("SELECT current_user").query(String.class).single())
                 .isEqualTo(Infra.TRANSFER_USER);
+    }
+
+    /** V13 no depende de roles que solo existen cuando risk está desplegado. */
+    @Test
+    void auditAppendSeCreaSinElRolDeRiskYSoloElDuenoPuedeEjecutarla() {
+        assertThat(jdbc.sql("SELECT count(*) FROM pg_roles WHERE rolname IN ('risk_svc', 'sim_loader')")
+                .query(Integer.class).single()).isZero();
+        assertThat(jdbc.sql("""
+                SELECT p.prosecdef AND p.proconfig::text LIKE '%search_path=pg_catalog, pg_temp%'
+                FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                WHERE n.nspname = 'audit' AND p.proname = 'append'""")
+                .query(Boolean.class).single()).isTrue();
+        assertThat(jdbc.sql("""
+                SELECT has_function_privilege('public', 'audit.append(text,text,text,text,uuid,jsonb)', 'EXECUTE')""")
+                .query(Boolean.class).single()).isFalse();
     }
 }
