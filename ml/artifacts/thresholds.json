@@ -1,0 +1,72 @@
+{
+  "model_version": "fraud-xgb/4",
+  "model_family": "xgb",
+  "feature_set": "A",
+  "feature_order": [
+    "amount",
+    "log_amount",
+    "type_TRANSFER",
+    "type_CASH_OUT",
+    "type_PAYMENT",
+    "type_DEBIT",
+    "hour_sin",
+    "hour_cos",
+    "dst_in_count_24h",
+    "dst_in_sum_24h",
+    "dst_distinct_src_24h",
+    "dst_seen_before",
+    "dst_age_hours",
+    "src_out_count_1h",
+    "src_out_count_24h",
+    "src_out_sum_24h",
+    "is_new_beneficiary"
+  ],
+  "t_review": 0.83142,
+  "t_block": 0.9038,
+  "rounding_decimals": 5,
+  "decision_rule": "score = round(p, 5); BLOCK si score >= t_block; si no, REVIEW si score >= t_review; si no, APPROVE",
+  "operating_points": {
+    "fpr_0.005": 0.81436,
+    "fpr_0.001": 0.87141
+  },
+  "validation_metrics": {
+    "pr_auc": 0.5626333655852395,
+    "operating_points": {
+      "fpr_0.005": {
+        "threshold": 0.81436,
+        "fpr": 0.0046290947462470445,
+        "recall": 0.53203125,
+        "recall_weighted": 0.8614949944537502
+      },
+      "fpr_0.001": {
+        "threshold": 0.87141,
+        "fpr": 0.0009550877679444816,
+        "recall": 0.3890625,
+        "recall_weighted": 0.6581700474995484
+      }
+    },
+    "decision": {
+      "cost": 530831837.98,
+      "review_rate": 0.004972885570242009,
+      "block_rate": 0.003394070672941248,
+      "block_fpr": 0.0004159253182984033,
+      "block_recall": 0.30546875,
+      "review_or_block_recall": 0.478125,
+      "n_review": 652,
+      "n_blocked_legit": 54,
+      "approved_fraud_amount": 530829071.98
+    },
+    "no_model_cost": 1903418012.73,
+    "n_blocks_valid_24": 6
+  },
+  "selection": {
+    "status": "DECIDIDO",
+    "manual_decision": null
+  },
+  "provenance": {
+    "git_commit": "c26dfd521cccab65e5892c48466a3c754895c087",
+    "features_yaml_sha256": "5de9692aabe09dd4062ee3b258321906cab5b2c322721bd7bbb84ac2df238527",
+    "csv_sha256": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b",
+    "config_yaml_sha256": "02bb6bb5162ff94057eb9f71aaa9349851a92547001f04eaf3bf795714419552"
+  }
+}

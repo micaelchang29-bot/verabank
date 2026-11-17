@@ -1,7 +1,10 @@
 {
-  "status": "PENDIENTE",
-  "winner": null,
-  "reason": "criterio(s) indeterminado(s): pr_auc_intervals_do_not_overlap",
+  "status": "DECIDIDO",
+  "winner": "xgb",
+  "reason": "el boosting cumple los cuatro criterios",
+  "warnings": [
+    "valid tiene 6 bloques de 24 pasos (menos de 10): los intervalos por bootstrap de bloques son poco fiables"
+  ],
   "criteria": [
     {
       "name": "pr_auc_gain",
@@ -11,20 +14,34 @@
     },
     {
       "name": "pr_auc_intervals_do_not_overlap",
-      "rule": "low(xgb) > high(logreg) con bloques de 24 pasos y al menos 10 bloques en valid",
+      "rule": "low(xgb) > high(logreg) con bloques de 24 y de 6 pasos; si difieren, cuenta como no cumplido",
       "value": {
-        "n_blocks_valid": 6,
-        "block_steps": 24,
-        "logreg_pr_auc_interval": [
-          0.24878556714140873,
-          0.47883977767545627
-        ],
-        "xgb_pr_auc_interval": [
-          0.48024692312267847,
-          0.6441889785785091
-        ]
+        "block_steps_24": {
+          "n_blocks_valid": 6,
+          "logreg_pr_auc_interval": [
+            0.24878556714140873,
+            0.47883977767545627
+          ],
+          "xgb_pr_auc_interval": [
+            0.48024692312267847,
+            0.6441889785785091
+          ],
+          "no_overlap": true
+        },
+        "block_steps_6": {
+          "n_blocks_valid": 21,
+          "logreg_pr_auc_interval": [
+            0.25358485261661223,
+            0.47826266278809515
+          ],
+          "xgb_pr_auc_interval": [
+            0.48170484874820635,
+            0.6467254600838906
+          ],
+          "no_overlap": true
+        }
       },
-      "result": "INDETERMINADO"
+      "result": "PASS"
     },
     {
       "name": "cost_lower",
@@ -38,7 +55,7 @@
     {
       "name": "inference_p95",
       "rule": "p95 de xgb en ONNX Runtime < 10 ms",
-      "value": 0.004519,
+      "value": 0.004028,
       "result": "PASS"
     }
   ],
@@ -46,13 +63,13 @@
   "models": {
     "logreg": {
       "name": "fraud-logreg",
-      "version": "3",
-      "run_id": "d2129ac1da5343c7bb0dffdbf14b43bf"
+      "version": "4",
+      "run_id": "7f8fbc063b9f4965a6cd81e70996709b"
     },
     "xgb": {
       "name": "fraud-xgb",
-      "version": "3",
-      "run_id": "7e88cf2441124fa6851a2974a7d3c508"
+      "version": "4",
+      "run_id": "1f5f4d6ab96148c4a6706fe4941dfe55"
     }
   },
   "best_configs": {
@@ -228,17 +245,17 @@
   "latency": {
     "logreg": {
       "calls": 10000,
-      "p50_ms": 0.003857,
-      "p95_ms": 0.004849,
-      "p99_ms": 0.011803400000000007,
-      "max_ms": 0.091403
+      "p50_ms": 0.003797,
+      "p95_ms": 0.004238,
+      "p99_ms": 0.008135200000000004,
+      "max_ms": 0.064693
     },
     "xgb": {
       "calls": 10000,
-      "p50_ms": 0.003657,
-      "p95_ms": 0.004519,
-      "p99_ms": 0.006563200000000004,
-      "max_ms": 0.041258
+      "p50_ms": 0.003647,
+      "p95_ms": 0.004028,
+      "p99_ms": 0.013706100000000002,
+      "max_ms": 0.061597
     }
   },
   "parity": {
@@ -252,7 +269,7 @@
     }
   },
   "provenance": {
-    "git_commit": "a77adc6cb97a69afd6b8a66b9ac121e83906ef06-dirty",
+    "git_commit": "c26dfd521cccab65e5892c48466a3c754895c087",
     "features_yaml_sha256": "5de9692aabe09dd4062ee3b258321906cab5b2c322721bd7bbb84ac2df238527",
     "csv_sha256": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b",
     "config_yaml_sha256": "02bb6bb5162ff94057eb9f71aaa9349851a92547001f04eaf3bf795714419552"
