@@ -43,6 +43,7 @@ entre 0 y 1.
 | `--seed` | `RAIL_SEED` | `42` | Semilla: toda decisión sale de `Random(f"{seed}:{transfer_id}")` |
 | `--state-db` | `RAIL_STATE_DB` | `simulator/.state/rail.db` | Base SQLite del estado (ignorada por Git) |
 | `--ready-file RUTA` | — | — | Archivo que se crea al quedar suscrito, junto con la línea `READY` |
+| `--heartbeat-file RUTA` | — | — | Archivo de latido: se actualiza cada 5 s mientras el consumo y los envíos avanzan (ver «Logs, latido y vigilancia») |
 | `--bootstrap-servers` | `KAFKA_BOOTSTRAP_SERVERS` | ver arriba | Listener de Kafka para clientes en el host |
 | `--group-id` | `RAIL_GROUP_ID` | `rail-simulator` | Grupo de consumo |
 | `--offset-reset` | — | `earliest` | Desde dónde leer si el grupo no tiene offset confirmado |
@@ -125,6 +126,23 @@ Los defaults de `SILENT`, `LOST` y `DELAY` son los del caos y difieren de los de
    corrida), espera a que esté listo y lo detiene al terminar, también si algo falla (`trap`).
 3. Ejecuta `chaos`, y después `make reconcile`, `make check-events` y `db/checks/chaos.sql`. Corren
    las cuatro etapas aunque una falle; el objetivo termina con código distinto de 0 si cualquiera falló.
+
+### Logs, latido y vigilancia
+
+- **Un log por corrida**, en `simulator/.state/logs/`, con marca de tiempo: `rail-sim-<fecha>-<pid>.log` (el
+  rail) y `chaos-rail-<fecha>-<pid>.log` (toda la salida de `make chaos-rail`). No se sobrescriben; se
+  conservan los últimos 10 de cada tipo (`LOG_KEEP`).
+- **Latido.** `rail --heartbeat-file F` escribe `F` (JSON con `ts`, `pid` y contadores) al arrancar y cada 5 s
+  *desde el bucle de consumo y envíos*: un `poll`, `produce` o `commit` que no vuelve deja de actualizarlo.
+- **Vigilancia.** Mientras `chaos` espera, el subcomando `watch` comprueba cada 5 s que el rail vive y que su
+  latido no tiene más de 30 s (`HEARTBEAT_MAX_SILENCE`). Si no: envía `SIGUSR1` al rail (vuelca las trazas de
+  todos sus hilos en su log sin matarlo), imprime las últimas 30 líneas del log, detiene `chaos` y la corrida
+  termina con error ("simulador del rail caído o bloqueado").
+- **Fallos del rail.** Una excepción en cualquier hilo se registra con traza y el proceso termina con código 1
+  (también el bucle principal: cierra el consumidor para salir del grupo). Un `commit` fallido por un
+  rebalanceo se tolera (el mensaje se reentrega; el motor es idempotente); una cola del productor llena durante
+  más de 60 s o un `flush` que deja mensajes sin entregar detienen el rail con un error en vez de esperar.
+- Para ver qué hace un rail colgado: `kill -USR1 <pid>`; las trazas caen en su log.
 
 ### `chaos`
 
