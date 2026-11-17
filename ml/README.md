@@ -14,6 +14,7 @@ make data      # descarga PaySim a data/raw/paysim.csv (idempotente; hash en ml/
 make ml-features  # features A y B en data/features/*.parquet (requiere make data)
 make ml-train     # modelos del conjunto A, umbrales y selección (solo train y valid)
 make ml-eval-test  # evaluación única en test del campeón (repetir exige ARGS=--force-test)
+make ml-export     # ONNX del champion y del challenger, golden.jsonl, thresholds.json y manifest.json
 make ml-report     # ablación B (solo valid) y reports/model-report.md
 make eda       # ejecuta notebooks/01_eda.ipynb y regenera reports/eda.md y reports/figures/
 (cd ml && uv run pytest -m data)   # esquema de PaySim; necesita make data
@@ -44,9 +45,11 @@ ml/
 │   ├── modeling.py, train.py, selection.py, latency.py, tracking.py   # make ml-train
 │   ├── metrics.py, bootstrap.py          # FPR, recall, costo, umbrales, bootstrap por bloques
 │   ├── eval_test.py, report.py           # make ml-eval-test, make ml-report
+│   ├── export.py, golden.py              # make ml-export: ONNX, golden.jsonl, manifest.json
 │   └── paysim.py             # esquema esperado de PaySim (check-paysim)
 └── tests/
     ├── test_onnx_smoke.py    # paridad ONNX vs predict_proba, datos sintéticos, tolerancia 1e-5
+    ├── test_artifacts.py, test_golden.py             # T-13 lado Python sobre ml/artifacts/ (sin datos)
     ├── test_metrics.py, test_selection_and_eval.py   # métricas a mano, umbrales, selección, guarda
     ├── test_features.py, test_split.py   # T-14, referencia, ejemplos a mano, guarda (sin datos)
     ├── test_features_data.py  # marcador data: columnas del contrato, NaN, fraude por partición
@@ -175,5 +178,7 @@ Lopez-Rojas), licencia [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa
 > E. A. Lopez-Rojas, A. Elmir y S. Axelsson. «PaySim: A financial mobile money simulator for fraud
 > detection». The 28th European Modeling and Simulation Symposium (EMSS), Larnaca, Chipre, 2016.
 
-Trabajo derivado en este repositorio: agregados y gráficos de `reports/` (sin filas del dataset). Por la
+Trabajo derivado en este repositorio: agregados y gráficos de `reports/` (sin filas del dataset) y los artefactos
+versionados de `artifacts/` (`golden.jsonl` contiene montos, tipos y tiempos de 1.000 transacciones de PaySim con las cuentas
+sustituidas por alias; véase `artifacts/README.md`). Por la
 cláusula SA, cualquier derivado de los datos que se redistribuya debe ir bajo CC BY-SA 4.0 con esta atribución.
