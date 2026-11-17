@@ -7,6 +7,7 @@ import sys
 from collections.abc import Callable, Sequence
 
 from verabank_ml.eval_test import eval_test_command
+from verabank_ml.export import export_command
 from verabank_ml.features import features_command
 from verabank_ml.paysim import check_paysim
 from verabank_ml.report import report_command
@@ -15,6 +16,7 @@ from verabank_ml.train import train_command
 COMMANDS: dict[str, Callable[[list[str]], int]] = {
     "check-paysim": check_paysim,
     "eval-test": eval_test_command,
+    "export": export_command,
     "features": features_command,
     "report": report_command,
     "train": train_command,
