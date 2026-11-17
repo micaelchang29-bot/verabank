@@ -51,6 +51,10 @@ public class RemoteScorer implements FraudScorer {
     private static final String CORRELATION_HEADER = "X-Correlation-Id";
     private static final String READINESS_PATH = "/q/health/ready";
     private static final Duration WARM_UP_TIMEOUT = Duration.ofSeconds(2);
+    /** Tipo que risk-service rechaza con 400: el calentamiento recorre la ruta POST sin puntuar ni guardar nada. */
+    static final String WARM_UP_TRANSFER_TYPE = "WARM_UP";
+    private static final int WARM_UP_POSTS = 5;
+    private static final String WARM_UP_RESPONSE = "{\"score\":0.01234,\"decision\":\"APPROVE\",\"model_version\":\"warm-up\"}";
 
     private final ScoringProperties properties;
     private final ObjectMapper mapper;
@@ -90,8 +94,8 @@ public class RemoteScorer implements FraudScorer {
     }
 
     /**
-     * Al arrancar, calienta el cliente HTTP (clases, JIT y la conexión que luego se reutiliza) con la readiness de
-     * risk-service. Va en segundo plano: no retrasa el arranque, su fallo solo se registra y no pasa por el circuit
+     * Al arrancar, calienta el cliente HTTP (clases, JIT y la conexión que luego se reutiliza) con la readiness y la
+     * ruta POST de risk-service. Va en segundo plano: no retrasa el arranque, su fallo solo se registra y no pasa por el circuit
      * breaker ni por las métricas del scoring. Sin él, la primera solicitud real de un proceso frío puede pasar de los
      * 120 ms y caer en fallback.
      */
@@ -100,14 +104,30 @@ public class RemoteScorer implements FraudScorer {
         Thread.ofPlatform().daemon().name("scoring-warm-up").start(this::warmUp);
     }
 
-    /** La petición de calentamiento (síncrona). Nunca lanza: cualquier fallo se ignora con un INFO. */
+    /**
+     * El calentamiento (síncrono). Nunca lanza: cualquier fallo se ignora con un INFO. Hace una petición GET a la
+     * readiness y {@value #WARM_UP_POSTS} POST a la ruta de scoring con un {@code transfer_type} inválido (risk-service
+     * responde 400 y no puntúa ni escribe nada), y recorre el armado del cuerpo y la lectura de una respuesta. Así la
+     * primera solicitud real no paga clases, JIT ni la conexión dentro de sus 120 ms.
+     */
     void warmUp() {
         long start = System.nanoTime();
         try {
             HttpRequest request = HttpRequest.newBuilder(readiness).timeout(WARM_UP_TIMEOUT).GET().build();
             HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
-            log.info("calentamiento del cliente de scoring: risk-service respondió {} en {} ms",
-                    response.statusCode(), millisSince(start));
+            int posted = 0;
+            for (int i = 0; i < WARM_UP_POSTS; i++) {
+                ScoreRequest probe = new ScoreRequest(UUID.randomUUID(), "warm-up-source", "warm-up-dest",
+                        BigDecimal.ONE, "PEN", WARM_UP_TRANSFER_TYPE, "PE", java.time.Instant.now());
+                HttpRequest post = HttpRequest.newBuilder(endpoint).timeout(WARM_UP_TIMEOUT)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body(probe), StandardCharsets.UTF_8)).build();
+                client.send(post, HttpResponse.BodyHandlers.discarding());
+                parse(WARM_UP_RESPONSE);
+                posted++;
+            }
+            log.info("calentamiento del cliente de scoring: risk-service respondió {} a la readiness y se enviaron {} POST en {} ms",
+                    response.statusCode(), posted, millisSince(start));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.info("calentamiento del cliente de scoring interrumpido; se ignora");

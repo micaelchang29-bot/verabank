@@ -286,13 +286,18 @@ class RemoteScorerTest {
     private static final String READY = "/q/health/ready";
 
     @Test
-    void warmUpHitsTheReadinessOfRiskServiceWithTheSameClientAndLeavesNoTraceInTheScoringMetrics() {
+    void warmUpHitsTheReadinessAndThePostRouteWithAnInvalidTypeAndLeavesNoTraceInTheScoringMetrics() {
         server.stubFor(get(urlEqualTo(READY)).willReturn(aResponse().withStatus(200).withBody("{\"status\":\"UP\"}")));
+        server.stubFor(post(urlEqualTo(PATH)).willReturn(aResponse().withStatus(400).withBody("{}")));
 
         scorer.warmUp();
 
         server.verify(1, getRequestedFor(urlEqualTo(READY)));
-        server.verify(0, postRequestedFor(urlEqualTo(PATH)));   // no es una puntuación: no deja filas en risk-service
+        // La ruta POST se calienta con un tipo inválido: risk-service responde 400 y no puntúa ni deja filas.
+        server.verify(5, postRequestedFor(urlEqualTo(PATH)).withRequestBody(
+                com.github.tomakehurst.wiremock.client.WireMock.containing("\"transfer_type\":\"WARM_UP\"")));
+        server.verify(0, postRequestedFor(urlEqualTo(PATH)).withRequestBody(
+                com.github.tomakehurst.wiremock.client.WireMock.containing("\"transfer_type\":\"TRANSFER\"")));
         assertThat(scorer.circuitBreaker().getMetrics().getNumberOfBufferedCalls()).isZero();
         assertThat(meters.find("scoring.remote.duration").timer()).isNull();
         assertThat(meters.find("scoring.fallback.total").counter()).isNull();
