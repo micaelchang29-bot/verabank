@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export amlgen
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -88,6 +88,9 @@ ml-report: ## Ablación B (solo valid) y ml/reports/model-report.md
 
 ml-export: ## ONNX del champion y del challenger, golden.jsonl, thresholds.json y manifest.json (ml/artifacts/)
 	@uv run --project ml --frozen python -m verabank_ml export
+
+ml-fixtures: ## Escenarios de features con respuesta conocida en contracts/fixtures/feature_scenarios.json (sin datos)
+	@uv run --project ml --frozen python -m verabank_ml fixtures
 
 # Generador AML con verdad de terreno (simulator/amlgen.yaml; salida en data/aml, ignorada por Git).
 SEED ?= 42

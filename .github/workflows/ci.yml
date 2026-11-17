@@ -97,8 +97,8 @@ jobs:
         run: uv sync --frozen
       - name: ruff check
         run: uv run ruff check .
-      - name: paridad de artefactos, T-13 lado Python (ml/artifacts/, sin datos)
-        run: uv run pytest tests/test_artifacts.py tests/test_golden.py
+      - name: paridad de artefactos y escenarios de features, T-13 lado Python (sin datos)
+        run: uv run pytest tests/test_artifacts.py tests/test_golden.py tests/test_fixtures.py
       - name: pytest sin datos (las pruebas con marcador data necesitan PaySim)
         run: uv run pytest -m "not data"
 
