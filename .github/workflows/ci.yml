@@ -1,4 +1,4 @@
-# CI de la fase 1: contratos, compilación y pruebas de transfer-service, pruebas del simulador, humo de ONNX del módulo ml y humo con Compose.
+# CI de la fase 1: contratos, compilación y pruebas de transfer-service, pruebas del simulador, humo de ONNX del módulo ml, pruebas de db/ y humo con Compose.
 # Dimensionado para el runner estándar de 4 CPU y 16 GB: una JVM de pruebas (-Xmx1g) con
 # PostgreSQL y Kafka compartidos por toda la suite; el humo levanta el perfil core (≈ 2 GB).
 name: ci
@@ -101,6 +101,25 @@ jobs:
         run: uv run pytest tests/test_artifacts.py tests/test_golden.py tests/test_fixtures.py
       - name: pytest sin datos (las pruebas con marcador data necesitan PaySim)
         run: uv run pytest -m "not data"
+
+  db:
+    name: db (migraciones, roles, permisos y semillas)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.8"
+      - name: Imágenes de las pruebas (PostgreSQL y Flyway, como transfer-service)
+        run: |
+          docker pull -q postgres:16.16
+          docker pull -q flyway/flyway:11.7.2
+      - name: pytest db/tests (entorno propio de db/, uv sync --frozen)
+        run: uv run --project db --frozen pytest db/tests
 
   smoke:
     name: humo (make up-core, demo-idempotency, reconcile)
