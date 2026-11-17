@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -76,3 +76,12 @@ eda: ## Ejecuta ml/notebooks/01_eda.ipynb y guarda las salidas (requiere make da
 ml-features: ## Features de los conjuntos A y B en data/features/*.parquet (requiere make data)
 	@uv run --project ml --frozen python -m verabank_ml features --set A
 	@uv run --project ml --frozen python -m verabank_ml features --set B
+
+ml-train: ## Entrena, selecciona y fija umbrales con train y valid (nunca toca test): make ml-train [ARGS=--winner xgb]
+	@uv run --project ml --frozen python -m verabank_ml train $(ARGS)
+
+ml-eval-test: ## Evalúa UNA vez el modelo campeón en test; repetirlo exige ARGS=--force-test
+	@uv run --project ml --frozen python -m verabank_ml eval-test $(ARGS)
+
+ml-report: ## Ablación B (solo valid) y ml/reports/model-report.md
+	@uv run --project ml --frozen python -m verabank_ml report
