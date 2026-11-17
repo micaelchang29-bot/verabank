@@ -157,7 +157,7 @@ SHAP global del XGBoost (TreeExplainer, 20,000 filas de valid):
 
 ![SHAP global](figures/shap_global.png)
 
-| Feature | Media |SHAP| |
+| Feature | Media \|SHAP\| |
 |---|---|
 | type_PAYMENT | 0.8891 |
 | dst_seen_before | 0.5360 |

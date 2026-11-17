@@ -240,7 +240,7 @@ def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
             out += ["", f"SHAP global del XGBoost (TreeExplainer, {SHAP_ROWS:,} filas de valid):", "",
                     "![SHAP global](figures/shap_global.png)", ""]  # fmt: skip
             out.append(
-                md_table(["Feature", "Media |SHAP|"], [[n, f"{v:.4f}"] for n, v in ranked[:10]])
+                md_table(["Feature", "Media \\|SHAP\\|"], [[n, f"{v:.4f}"] for n, v in ranked[:10]])
             )
         else:
             out += [
