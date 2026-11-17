@@ -76,7 +76,7 @@ jobs:
         run: |
           docker pull -q postgres:16.16
           docker pull -q apache/kafka:4.3.2
-      - name: ./mvnw verify (incluye el rol stream: reglas AML, consumidores, API de alertas y latencia)
+      - name: "./mvnw verify (incluye el rol stream: reglas AML, consumidores, API de alertas y latencia)"
         working-directory: risk-service
         run: ./mvnw -B -ntp verify
       - name: Informes de pruebas
