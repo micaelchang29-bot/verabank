@@ -36,13 +36,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 /**
  * Cada evento producido en transfer.events.v1 cumple envelope.v1.json y el esquema de su
  * event_type en contracts/events, lleva clave source_account_id y las cabeceras de §3.1.
- * El scorer se espía para producir también BLOCK y REVIEW, que el StubScorer nunca devuelve.
+ * El scorer se espía para producir también BLOCK, REVIEW y un FALLBACK sin score (D7), que el StubScorer nunca devuelve.
  */
 @RelayEnabled
 class EventContractIT extends IntegrationTest {
 
     private static final BigDecimal BLOCK_AMOUNT = new BigDecimal("66.66");
     private static final BigDecimal REVIEW_AMOUNT = new BigDecimal("77.77");
+    private static final BigDecimal FALLBACK_AMOUNT = new BigDecimal("88.88");
 
     @MockitoSpyBean
     FraudScorer scorer;
@@ -59,6 +60,9 @@ class EventContractIT extends IntegrationTest {
                 .when(scorer).score(argThat(r -> r.amount().compareTo(BLOCK_AMOUNT) == 0));
         doReturn(new ScoreResult(new BigDecimal("0.50000"), Decision.REVIEW, DecisionSource.FALLBACK, "test", 3))
                 .when(scorer).score(argThat(r -> r.amount().compareTo(REVIEW_AMOUNT) == 0));
+        // D7: en fallback no hay score; el evento se emite sin él.
+        doReturn(new ScoreResult(null, Decision.APPROVE, DecisionSource.FALLBACK, "fallback-v1", 3))
+                .when(scorer).score(argThat(r -> r.amount().compareTo(FALLBACK_AMOUNT) == 0));
 
         Bank bank = new Bank(jdbc, txManager);
         Http http = new Http(port);
@@ -77,6 +81,8 @@ class EventContractIT extends IntegrationTest {
                 List.of("TransferInitiated", "TransferScored", "TransferRejected"));
         expected.put(create(http, Bank.internal(source, dest, REVIEW_AMOUNT.toPlainString()), 201),
                 List.of("TransferInitiated", "TransferScored", "TransferHeld"));
+        expected.put(create(http, Bank.internal(source, dest, FALLBACK_AMOUNT.toPlainString()), 201),
+                List.of("TransferInitiated", "TransferScored", "TransferCompleted"));
         expected.put(create(http, """
                 {"source_account_id":"%s","dest_external_ref":"CCI-778899","dest_country":"CO","rail":"EXTERNAL",
                  "transfer_type":"PAYMENT","amount":"3.00","currency":"PEN","occurred_at":"2026-03-02T08:00:00Z"}"""
@@ -109,6 +115,7 @@ class EventContractIT extends IntegrationTest {
                 "TransferRejected", "TransferHeld");
 
         // TransferScored lleva exactamente lo que se guardó en core.transfers.
+        int scoredWithoutScore = 0;
         for (ConsumerRecord<String, String> r : records) {
             JsonNode envelope = mapper.readTree(r.value());
             if (!"TransferScored".equals(envelope.path("event_type").asText())) {
@@ -119,12 +126,25 @@ class EventContractIT extends IntegrationTest {
                     SELECT fraud_score, fraud_decision, decision_source, model_version, scoring_latency_ms
                     FROM core.transfers WHERE transfer_id = CAST(:t AS uuid)""")
                     .param("t", p.path("transfer_id").asText()).query().singleRow();
-            assertThat(p.path("score").decimalValue()).isEqualByComparingTo((BigDecimal) row.get("fraud_score"));
+            // D7: el score es obligatorio solo cuando la fuente es MODEL (el esquema condicional ya se validó arriba);
+            // un evento MODEL sin score hace fallar esta prueba.
+            String decisionSource = p.path("decision_source").asText();
+            if ("MODEL".equals(decisionSource)) {
+                assertThat(p.has("score")).as("TransferScored MODEL sin score: %s", r.value()).isTrue();
+            }
+            if (p.has("score")) {
+                assertThat(p.path("score").decimalValue()).isEqualByComparingTo((BigDecimal) row.get("fraud_score"));
+            } else {
+                assertThat(decisionSource).as("solo el fallback se emite sin score").isEqualTo("FALLBACK");
+                assertThat(row.get("fraud_score")).as("sin score en el evento, fraud_score es NULL").isNull();
+                scoredWithoutScore++;
+            }
             assertThat(p.path("decision").asText()).isEqualTo(row.get("fraud_decision"));
             assertThat(p.path("decision_source").asText()).isEqualTo(row.get("decision_source"));
             assertThat(p.path("model_version").asText()).isEqualTo(row.get("model_version"));
             assertThat(p.path("latency_ms").asInt()).isEqualTo(row.get("scoring_latency_ms"));
         }
+        assertThat(scoredWithoutScore).as("el escenario de fallback emitió un TransferScored sin score").isPositive();
 
         // Cada transferencia completada por el servicio tiene su TransferCompleted en Kafka.
         List<String> completed = jdbc.sql("""
@@ -148,6 +168,14 @@ class EventContractIT extends IntegrationTest {
 
         assertThat(Contracts.payloadErrors("TransferInitiated", bad)).hasSizeGreaterThanOrEqualTo(3);
         assertThat(Contracts.envelopeErrors(badEnvelope)).hasSizeGreaterThanOrEqualTo(2);
+
+        // D7: sin score el evento es válido solo con decision_source FALLBACK.
+        String scored = "{\"transfer_id\":\"%s\",\"decision\":\"APPROVE\",\"decision_source\":\"%s\","
+                + "\"model_version\":\"x\",\"latency_ms\":3}";
+        assertThat(Contracts.payloadErrors("TransferScored",
+                mapper.readTree(scored.formatted(UUID.randomUUID(), "MODEL")))).isNotEmpty();
+        assertThat(Contracts.payloadErrors("TransferScored",
+                mapper.readTree(scored.formatted(UUID.randomUUID(), "FALLBACK")))).isEmpty();
     }
 
     private String create(Http http, String body, int expectedStatus) {
