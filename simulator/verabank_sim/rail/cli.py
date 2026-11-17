@@ -75,6 +75,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                         help="base SQLite del estado (env RAIL_STATE_DB, simulator/.state/rail.db)")
     parser.add_argument("--ready-file", type=Path, default=None,
                         help="archivo que se crea al quedar suscrito (junto con la línea READY)")
+    parser.add_argument("--heartbeat-file", type=Path, default=None,
+                        help="archivo de latido: se actualiza cada 5 s mientras el consumo y los envíos avanzan")
     parser.add_argument("--bootstrap-servers", default=None,
                         help="listener externo de Kafka (env KAFKA_BOOTSTRAP_SERVERS; si no, localhost:KAFKA_EXTERNAL_PORT de .env)")
     parser.add_argument("--group-id", default=_env("RAIL_GROUP_ID", "rail-simulator"),
@@ -103,6 +105,6 @@ def run(args: argparse.Namespace) -> int:
     log.info("rail: %s bootstrap=%s estado=%s", config, bootstrap, args.state_db)
     runner = RailRunner(
         processor,
-        KafkaSettings(bootstrap, args.group_id, args.offset_reset, args.ready_file),
+        KafkaSettings(bootstrap, args.group_id, args.offset_reset, args.ready_file, args.heartbeat_file),
     )
     return runner.run()

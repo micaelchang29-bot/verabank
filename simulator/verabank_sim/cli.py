@@ -16,6 +16,7 @@ from collections.abc import Sequence
 COMMANDS: dict[str, tuple[str, str]] = {
     "rail": ("verabank_sim.rail.cli", "rail interbancario simulado (consume rail.commands.v1)"),
     "chaos": ("verabank_sim.chaos.cli", "carga de transferencias EXTERNAL con reenvíos y reusos de clave"),
+    "watch": ("verabank_sim.watch", "vigila el latido del simulador mientras chaos espera (lo usa make chaos-rail)"),
 }
 
 
