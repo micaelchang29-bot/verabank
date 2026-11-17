@@ -29,7 +29,7 @@
       "ir_version": 8
     },
     "thresholds.json": {
-      "sha256": "404a285d585e4ea04e55c51a05b8876eb44e840a35ebeeb1445ae8b1a545d57a"
+      "sha256": "c69a2da417e50af345fc8d8ce0ebf50b44283be3d2e9a645b26ce118091d7cec"
     },
     "golden.jsonl": {
       "sha256": "9a264bb6cb343d2bdf06d73d25f0ef5d693275d6255eacca5912ef3cd2a9d355",
@@ -57,7 +57,7 @@
     "positive_class_column": 1
   },
   "inputs": {
-    "contracts/features.yaml": "5de9692aabe09dd4062ee3b258321906cab5b2c322721bd7bbb84ac2df238527",
+    "contracts/features.yaml": "5abf0c8754ef72f1d34de5e838127cc73969a44ccba67ca735a615ff9b3722bc",
     "ml/config.yaml": "184ec660f34e0adaf48c354921e40b00bb2b9b62396df397dc6b6b5137fb1452",
     "paysim.csv": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b"
   },

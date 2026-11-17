@@ -44,6 +44,8 @@ features:
     encoding: one-hot
     categories: [TRANSFER, CASH_OUT, PAYMENT, DEBIT]
     description: transfer_type de la solicitud, codificado one-hot.
+    # D6 (fase 3): las columnas se llaman type_<categoría> y siguen el orden de `categories`.
+    # CASH_IN no es historia: se descarta antes de calcular y no estaría en scoring_log.
   - name: hour_sin
     set: A
     type: float
@@ -86,6 +88,8 @@ features:
     origin: scoring_log.dest
     default: false
     description: El destino aparece en alguna solicitud previa.
+    # D6 (fase 3): cuenta cualquier fila previa del destino de los tipos permitidos,
+    # incluidos los pagos a comercios.
   - name: dst_age_hours
     set: A
     type: float
@@ -93,6 +97,8 @@ features:
     origin: scoring_log.dest
     default: 0.0
     description: Horas desde la primera aparición del destino; 0 si no se ha visto.
+    # D6 (fase 3): se mide como diferencia de pasos, en horas enteras (coincide con la
+    # diferencia de occurred_at mientras este esté alineado a la hora).
 
   # --- Conjunto A · origen, historial previo ---
   - name: src_out_count_1h
@@ -123,6 +129,8 @@ features:
     origin: scoring_log.dest
     default: true
     description: El origen nunca había enviado a este destino.
+    # D6 (fase 3): cuenta cualquier fila previa del par (origen, destino) de los tipos
+    # permitidos, incluidos los pagos a comercios.
 
   # --- Conjunto B · ablación (no se sirve) ---
   - name: src_balance_before
@@ -137,6 +145,8 @@ features:
     window: none
     origin: request
     description: amount / src_balance_before.
+    # D6 (fase 3): solo conjunto B. Si el saldo es ≤ 0, vale 0.0 (el cociente no existe;
+    # el caso de saldo 0 es el relevante, el negativo recibe el mismo tratamiento).
 
 # Entradas que ninguna feature puede usar (fuga de etiqueta o regla disfrazada de dato).
 prohibited_inputs:
