@@ -38,11 +38,15 @@ def copy_data(rows: Sequence[m.Row], epoch: datetime) -> str:
 
 
 def insert_sql(rows: Sequence[m.Row], epoch: datetime) -> str:
-    """Alternativa con ``ON CONFLICT DO NOTHING`` para cuando un ``COPY`` choca con filas ya cargadas."""
+    """Alternativa con ``ON CONFLICT DO NOTHING`` para cuando un ``COPY`` choca con filas ya cargadas.
+
+    Sin destino de conflicto a propósito: ``ON CONFLICT (transfer_id)`` exige ``SELECT`` sobre la tabla y ``sim_loader``
+    solo tiene ``INSERT`` (db/init/grants.sql).
+    """
     values = ",\n".join(
         "(" + ", ".join(f"'{v}'" for v in warmup_record(r, epoch)[:5]) + ", '{}'::jsonb, 0, 'APPROVE', 'warmup')"
         for r in rows)
-    return (f"INSERT INTO risk.scoring_log ({COLUMNS})\nVALUES\n{values}\nON CONFLICT (transfer_id) DO NOTHING;\n")
+    return (f"INSERT INTO risk.scoring_log ({COLUMNS})\nVALUES\n{values}\nON CONFLICT DO NOTHING;\n")
 
 
 def load(psql, rows: Sequence[m.Row], epoch: datetime) -> tuple[int, str]:

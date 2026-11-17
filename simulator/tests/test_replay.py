@@ -150,7 +150,9 @@ def test_el_calentamiento_carga_con_copy_y_si_ya_estaba_cae_a_insert_on_conflict
     assert warmup.load(ok, rows, EPOCH) == (2, "copy") and ok.calls[0][1][0] == "-c" and "FROM STDIN" in ok.calls[0][1][1]
     dup = FakeLoader(fail_copy=True)
     assert warmup.load(dup, rows, EPOCH) == (2, "insert")
-    assert "ON CONFLICT (transfer_id) DO NOTHING" in dup.calls[1][0] and "'warmup'" in dup.calls[1][0]
+    sql = dup.calls[1][0]
+    # Sin destino de conflicto: con "(transfer_id)" PostgreSQL exige SELECT y sim_loader solo tiene INSERT (db/tests).
+    assert "ON CONFLICT DO NOTHING" in sql and "ON CONFLICT (" not in sql and "'warmup'" in sql
     other = FakeLoader()
     other.fail_copy = False
     assert warmup.load(other, [], EPOCH) == (0, "copy") and not other.calls

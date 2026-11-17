@@ -103,6 +103,17 @@ class TestSimLoader:
         assert grants == [("risk.scoring_log", "INSERT")]
 
 
+def test_sim_loader_can_retry_a_warmup_insert_with_on_conflict_do_nothing(provisioned_db):
+    """El reintento del calentamiento del replay: duplicados ignorados sin SELECT (un destino de conflicto lo exige)."""
+    transfer_id = uuid.uuid4()
+    with provisioned_db.connect("sim_loader") as conn:
+        conn.execute(*scoring_row(transfer_id))
+        sql, params = scoring_row(transfer_id)
+        assert conn.execute(sql + " ON CONFLICT DO NOTHING", params).rowcount == 0
+        with pytest.raises(DENIED):
+            conn.execute(sql + " ON CONFLICT (transfer_id) DO NOTHING", params)
+
+
 class TestStatementTimeout:
     """Respaldo del lado del servidor del límite de 100 ms del cliente (ajuste heredado de 4.C)."""
 
