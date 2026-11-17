@@ -12,6 +12,9 @@ make ml-env    # uv sync --project ml --frozen
 make ml-test   # pytest ml/tests -m "not data"
 make data      # descarga PaySim a data/raw/paysim.csv (idempotente; hash en ml/data.sha256)
 make ml-features  # features A y B en data/features/*.parquet (requiere make data)
+make ml-train     # modelos del conjunto A, umbrales y selección (solo train y valid)
+make ml-eval-test  # evaluación única en test del campeón (repetir exige ARGS=--force-test)
+make ml-report     # ablación B (solo valid) y reports/model-report.md
 make eda       # ejecuta notebooks/01_eda.ipynb y regenera reports/eda.md y reports/figures/
 (cd ml && uv run pytest -m data)   # esquema de PaySim; necesita make data
 ```
@@ -38,9 +41,13 @@ ml/
 │   ├── features.py           # features A y B, punto-en-el-tiempo, vectorizadas (subcomando features)
 │   ├── split.py              # train / valid / test / gap según config.yaml
 │   ├── reference.py          # implementación lenta por filas, solo para pruebas
+│   ├── modeling.py, train.py, selection.py, latency.py, tracking.py   # make ml-train
+│   ├── metrics.py, bootstrap.py          # FPR, recall, costo, umbrales, bootstrap por bloques
+│   ├── eval_test.py, report.py           # make ml-eval-test, make ml-report
 │   └── paysim.py             # esquema esperado de PaySim (check-paysim)
 └── tests/
     ├── test_onnx_smoke.py    # paridad ONNX vs predict_proba, datos sintéticos, tolerancia 1e-5
+    ├── test_metrics.py, test_selection_and_eval.py   # métricas a mano, umbrales, selección, guarda
     ├── test_features.py, test_split.py   # T-14, referencia, ejemplos a mano, guarda (sin datos)
     ├── test_features_data.py  # marcador data: columnas del contrato, NaN, fraude por partición
     └── test_paysim_data.py   # marcador data: columnas, tipos y filas de PaySim
@@ -102,6 +109,45 @@ columna). Las filas `gap` o fuera de los cortes no se usan para entrenar ni eval
 Todas las columnas de features son `float64`.
 
 Medidas (12 CPU, PaySim completo): conjunto A en 24 s y 4,6 GB de memoria máxima; B en 22 s y 4,6 GB.
+
+## Modelos, umbrales y evaluación
+
+Método (no negociable): hiperparámetros, umbrales y selección usan solo `valid`; `test` se evalúa una vez, con
+todo congelado. `ml-train` ni siquiera puede leer `test` (`load_features` lanza `PermissionError`). Sin SMOTE:
+pesos de clase. El escalador va dentro del `Pipeline`, ajustado solo con `train`. Semilla en `config.yaml`.
+
+- **Modelos (conjunto A).** Regresión logística (`class_weight="balanced"`, rejilla de `C`) y XGBoost
+  (`hist`, `aucpr`, parada temprana contra `valid`, `max_depth` 4–6, ≤ 400 árboles, rejilla de
+  `scale_pos_weight`). Las rejillas están en `config.yaml`. Cada combinación es una ejecución hija de MLflow
+  (experimento `verabank-fraud`, SQLite en `ml/mlflow.db`, no versionado). La mejor de cada familia se registra
+  como `fraud-logreg` y `fraud-xgb`. El XGBoost final se reentrena con `best_iteration + 1` árboles y sin
+  parada temprana, para que el modelo registrado y el ONNX contengan exactamente los mismos árboles.
+  Se registran parámetros, métricas, `config.yaml`, hash de `features.yaml`, hash del CSV y commit.
+- **Scores y decisión.** `score = round(p, 5)`; `BLOCK` si `score >= t_block`; si no, `REVIEW` si
+  `score >= t_review`; si no, `APPROVE`. Las métricas de decisión usan scores redondeados; el PR-AUC
+  (`average_precision`) usa probabilidades sin redondear.
+- **`t_block`**: el menor score observado en `valid` con FPR de bloqueo ≤ `block_fpr_max`.
+  **`t_review`**: el que minimiza `C` con tasa de revisión `n(REVIEW)/N ≤ review_rate_max` y
+  `t_review ≤ t_block`; a igual costo gana el mayor umbral. Los candidatos son los scores observados, así que
+  los empates por el redondeo no se pueden separar.
+- **Costo** `C = Σ monto(fraude APPROVE) + review·n(REVIEW) + block_false_positive·n(legítimas BLOCK)`.
+  Un fraude en `REVIEW` o `BLOCK` no suma monto. La sensibilidad multiplica ambos costos unitarios por 0,5 / 1 / 1,5
+  con los umbrales fijos. Como los montos de los fraudes dominan, `C` casi no cambia con los costos unitarios.
+- **Recall a FPR fija** (0,5 % y 0,1 %): el umbral se fija en `valid` (menor score con FPR ≤ objetivo) y se informa
+  el FPR real; en `test` se usan esos mismos umbrales y se informa el FPR real de `test`.
+- **Intervalos**: bootstrap de bloques de pasos (24 y, como sensibilidad, 6), 1.000 remuestreos, percentiles al
+  95 %, semilla fija. Con menos de `bootstrap.min_blocks` (10) bloques el intervalo no es concluyente:
+  `valid` tiene 6 bloques de 24 pasos y `test` 8.
+- **Selección** (`selection.py`, `reports/selection.json`): el boosting se sirve solo si mejora el PR-AUC en ≥ 0,02,
+  con intervalos que no se solapan, baja el costo y su p95 en ONNX Runtime (un hilo, una fila por llamada,
+  10.000 llamadas) es < 10 ms. Con menos de 10 bloques el criterio de intervalos es `INDETERMINADO`: si otro
+  criterio falla, gana la logística; si no, la decisión queda `PENDIENTE` y no se escribe `thresholds.json`.
+  `make ml-train ARGS="--winner xgb|logreg"` registra una decisión manual.
+- **`artifacts/thresholds.json`** (solo con ganador): `model_version`, `feature_set`, `feature_order`, `t_review`,
+  `t_block`, `rounding_decimals`, regla de decisión y métricas de `valid`. Alias de MLflow: `champion` y `challenger`.
+- **`ml-eval-test`**: una sola vez; si existe `reports/test_evaluation.json` o una ejecución de test en MLflow,
+  se niega, salvo con `--force-test` (etiqueta `test_reevaluated=true`). Añade las métricas sobre destinos no
+  vistos en `train`, FPR por tipo y por tramo de monto (décadas fijas) y la comparación con aprobarlo todo.
 
 ## Versiones fijadas
 
