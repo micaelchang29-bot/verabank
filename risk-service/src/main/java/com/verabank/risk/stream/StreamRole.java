@@ -1,8 +1,9 @@
 package com.verabank.risk.stream;
 
 /**
- * Marcador del rol {@code stream} (consumidor de Kafka y reglas AML, tarea 4.E). Todavía no tiene lógica: este
- * paquete existe para que el límite con {@code scoring} (ADR-08) ya esté vigilado por la prueba de arquitectura.
+ * Rol {@code stream}: consumidores de Kafka ({@code messaging}), cadena de reglas AML y alertas ({@code aml}), etiquetas
+ * de fraude ({@code labels}) y API de alertas ({@code api}). No importa nada de {@code scoring} (ADR-08, D3): la prueba
+ * de arquitectura lo vigila.
  */
 public final class StreamRole {
 
