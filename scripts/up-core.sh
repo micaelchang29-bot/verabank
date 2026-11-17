@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # make up-core: PostgreSQL y Kafka (perfil core), tópicos, transfer-service en el puerto
-# SERVER_PORT (8081) con sus migraciones, y la semilla local.
+# SERVER_PORT (8081) con sus migraciones, las de risk, los roles y permisos de risk y la semilla local.
 . "$(dirname "$0")/lib.sh"
 
 first_api_key >/dev/null
@@ -9,6 +9,9 @@ echo "== compose (perfil core)"
 "${COMPOSE[@]}" up -d --wait postgres kafka
 "${COMPOSE[@]}" run --rm kafka-init >/dev/null
 echo "tópicos listos"
+
+echo "== roles de ejecución de risk"
+scripts/db-roles.sh
 
 echo "== compilando transfer-service"
 (cd "$SERVICE_DIR" && ./mvnw -B -q -DskipTests package)
@@ -27,6 +30,7 @@ mkdir -p "$RUN_DIR"
 # Los secretos van por entorno, no por argumentos (no aparecen en ps).
 # Solo las credenciales del rol del servicio: las del superusuario y otros roles se quitan.
 env -u POSTGRES_PASSWORD -u VERABANK_RISK_PASSWORD -u VERABANK_BI_PASSWORD \
+  -u RISK_SVC_PASSWORD -u SIM_LOADER_PASSWORD \
 POSTGRES_HOST=localhost \
 KAFKA_BOOTSTRAP_SERVERS="localhost:${KAFKA_EXTERNAL_PORT:-29092}" \
 VERABANK_MIGRATIONS_DIR="$ROOT/db/migrations" \
@@ -37,8 +41,14 @@ echo $! >"$PID_FILE"
 for _ in $(seq 1 90); do
   if curl -fsS "${BASE_URL}/actuator/health/readiness" >/dev/null 2>&1; then
     echo "transfer-service listo: ${BASE_URL} (log: ${LOG_FILE#"$ROOT"/})"
+    echo "== migraciones de risk (Flyway, rol verabank_risk)"
+    scripts/db-migrate-risk.sh
+    echo "== permisos de risk_svc, sim_loader y BI"
+    scripts/db-grants.sh
     echo "== semilla local"
     db/seed/load.sh
+    scripts/seed-risk.sh
+    scripts/load-country-risk.sh
     exit 0
   fi
   if ! service_running; then

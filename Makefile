@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk db-grants seed-risk load-country-risk test-db
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -91,6 +91,25 @@ ml-export: ## ONNX del champion y del challenger, golden.jsonl, thresholds.json 
 
 ml-fixtures: ## Escenarios de features con respuesta conocida en contracts/fixtures/feature_scenarios.json (sin datos)
 	@uv run --project ml --frozen python -m verabank_ml fixtures
+
+# Base de datos de risk (db/README.md). make up-core ya los ejecuta en este orden.
+db-roles: ## Crea los roles risk_svc y sim_loader (idempotente)
+	@scripts/db-roles.sh
+
+migrate-risk: ## Migraciones de db/migrations/risk con Flyway y el rol verabank_risk
+	@scripts/db-migrate-risk.sh
+
+db-grants: ## Permisos de risk_svc, sim_loader y BI sobre risk y audit (idempotente)
+	@scripts/db-grants.sh
+
+seed-risk: ## Exime la cuenta CLEARING de las reglas AML (idempotente)
+	@scripts/seed-risk.sh
+
+load-country-risk: ## Carga db/seed/country_risk.csv (idempotente; cierra la lista anterior): make load-country-risk [CSV=ruta]
+	@scripts/load-country-risk.sh $(CSV)
+
+test-db: ## Pruebas de db/ sobre un PostgreSQL desechable (necesita Docker)
+	@uv run --project db --frozen pytest db/tests
 
 # Generador AML con verdad de terreno (simulator/amlgen.yaml; salida en data/aml, ignorada por Git).
 SEED ?= 42
