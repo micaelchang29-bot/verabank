@@ -8,12 +8,22 @@ import math
 
 
 def reference_features(
-    rows: list[dict], feature_set: str, types: list[str], categories: list[str]
+    rows: list[dict],
+    feature_set: str,
+    types: list[str],
+    categories: list[str],
+    targets: list[int] | None = None,
 ) -> list[dict]:
-    """Una entrada por fila de un tipo permitido, con `row_id` (posición en `rows`) y sus features."""
+    """Una entrada por fila de un tipo permitido, con `row_id` (posición en `rows`) y sus features.
+
+    Con `targets` (posiciones en `rows`) solo calcula esas filas; las demás siguen contando como historia.
+    """
     kept = [dict(row, row_id=i) for i, row in enumerate(rows) if row["type"] in types]
     out = []
+    wanted = None if targets is None else set(targets)
     for row in kept:
+        if wanted is not None and row["row_id"] not in wanted:
+            continue
         s, orig, dest, amount = row["step"], row["nameOrig"], row["nameDest"], row["amount"]
         before = [r for r in kept if r["step"] < s]
         day = [r for r in before if r["step"] >= s - 24]

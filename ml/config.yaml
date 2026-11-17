@@ -65,6 +65,18 @@ latency:
   calls: 10000
   warmup: 1000
 
+# golden.jsonl (T-13): casos de valid con los que Java debe recalcular features y score.
+# Composición: boundary (score a menos de boundary_distance de t_review o t_block, a ambos lados, incluidos los
+# que el redondeo a 5 decimales cambia de lado), fraud, above_review (legítimas con score >= t_review) y el resto
+# legítimas al azar estratificadas por tipo (total - los demás).
+golden:
+  total: 1000
+  fraud: 250
+  above_review: 250
+  boundary: 100
+  boundary_distance: 0.0005
+  max_history: 300               # filas máximas de history por caso; los candidatos con más se excluyen
+
 mlflow:
   experiment: verabank-fraud
   tracking_db: ml/mlflow.db      # relativo a la raíz del repositorio
