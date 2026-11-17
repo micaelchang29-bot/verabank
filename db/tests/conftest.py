@@ -103,9 +103,9 @@ class Database:
         )  # fmt: skip
         return env
 
-    def script(self, name: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    def script(self, name: str, *args: str, check: bool = True, **env) -> subprocess.CompletedProcess:
         result = subprocess.run(
-            [str(ROOT / "scripts" / name), *args], env=self.script_env(),
+            [str(ROOT / "scripts" / name), *args], env={**self.script_env(), **env},
             capture_output=True, text=True, check=False,
         )  # fmt: skip
         if check and result.returncode != 0:

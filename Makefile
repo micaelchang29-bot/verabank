@@ -113,8 +113,8 @@ db-grants: ## Permisos de risk_svc, sim_loader y BI sobre risk y audit (idempote
 seed-risk: ## Exime la cuenta CLEARING de las reglas AML (idempotente)
 	@scripts/seed-risk.sh
 
-load-country-risk: ## Carga db/seed/country_risk.csv (idempotente; cierra la lista anterior): make load-country-risk [CSV=ruta]
-	@scripts/load-country-risk.sh $(CSV)
+load-country-risk: ## Carga db/seed/country_risk.csv (idempotente; cierra la lista anterior): make load-country-risk [CSV=ruta] [VALID_FROM=2026-01-01 (retroactiva)]
+	@VALID_FROM=$(VALID_FROM) scripts/load-country-risk.sh $(CSV)
 
 test-db: ## Pruebas de db/ sobre un PostgreSQL desechable (necesita Docker)
 	@uv run --project db --frozen pytest db/tests
@@ -132,6 +132,7 @@ N ?= 20000
 TPS ?= 50
 AMOUNT_FACTOR ?= 1
 DURATION ?= 5m
+VALID_FROM ?=
 PEAK ?= 0
 
 replay: ## Replay de PaySim (partición de prueba): make replay N=20000 TPS=50 [AMOUNT_FACTOR=1]

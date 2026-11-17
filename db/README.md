@@ -101,7 +101,10 @@ No hay `FAN_IN` (manual 0.1): se añadirá como versión 1 de esa regla cuando s
 - `make load-country-risk [CSV=ruta]`: carga `db/seed/country_risk.csv` con `valid_from = list_date`. El CSV es una
   instantánea completa con una sola `list_date`. Al cargar una lista más nueva se cierra (`valid_to = list_date`)
   toda vigencia anterior, también la de los países que salieron; una lista más antigua que la vigente se rechaza.
-  Repetir la misma carga no cambia nada.
+  Repetir la misma carga no cambia nada. Con `VALID_FROM=AAAA-MM-DD` (opción explícita, no es el uso normal) la lista se
+  aplica **retroactivamente al periodo simulado**: su vigencia empieza en esa fecha (anterior o igual a `list_date`) y
+  adelanta la misma lista si ya estaba cargada. Sirve para que las reglas, que usan el nivel vigente en `occurred_at`,
+  encuentren la lista al evaluar el generador AML (enero de 2026) con la lista real de octubre de 2026.
 
 ### Lista de países de riesgo
 

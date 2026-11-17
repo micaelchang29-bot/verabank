@@ -97,3 +97,36 @@ def test_a_csv_with_mixed_dates_or_bad_codes_is_refused(fresh_db, tmp_path):
         before = country_rows(fresh_db)
         assert fresh_db.script("load-country-risk.sh", str(path), check=False).returncode != 0, name
         assert country_rows(fresh_db) == before, name
+
+
+def test_a_list_can_be_applied_retroactively_to_the_simulated_period(provisioned_db):
+    """VALID_FROM: la lista de octubre de 2026 rige desde enero (el periodo que simula amlgen); es una opción explícita."""
+    def clean():
+        with provisioned_db.connect(ADMIN) as conn:
+            conn.execute("DELETE FROM risk.country_risk")
+
+    clean()
+    try:
+        # Sin la opción rige desde su fecha; con ella se adelanta, sin duplicar filas.
+        provisioned_db.script("load-country-risk.sh")
+        assert {r[4] for r in country_rows(provisioned_db)} == {date(2026, 10, 30)}
+        out = provisioned_db.script("load-country-risk.sh", VALID_FROM="2026-01-01")
+        rows = country_rows(provisioned_db)
+        assert len(rows) == 21 and "retroactivamente al periodo simulado" in out.stderr
+        assert {(r[3], r[4], r[5]) for r in rows} == {(date(2026, 10, 30), date(2026, 1, 1), None)}
+        snapshot = rows
+        provisioned_db.script("load-country-risk.sh", VALID_FROM="2026-01-01")
+        assert country_rows(provisioned_db) == snapshot  # idempotente
+
+        # Sobre una base vacía también carga con la vigencia retroactiva.
+        clean()
+        provisioned_db.script("load-country-risk.sh", VALID_FROM="2026-01-01")
+        assert {r[4] for r in country_rows(provisioned_db)} == {date(2026, 1, 1)}
+
+        # Posterior a la lista o mal escrita: se rechaza y no cambia nada.
+        for bad in ("2026-11-01", "enero"):
+            result = provisioned_db.script("load-country-risk.sh", check=False, VALID_FROM=bad)
+            assert result.returncode != 0, bad
+        assert {r[4] for r in country_rows(provisioned_db)} == {date(2026, 1, 1)}
+    finally:
+        clean()
