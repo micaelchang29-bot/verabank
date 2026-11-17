@@ -86,6 +86,22 @@ verabank:
     stuck-after: ${SAGA_STUCK_AFTER:15m}
     stuck-refresh: ${SAGA_STUCK_REFRESH:15s}
     poller-enabled: ${SAGA_POLLER_ENABLED:true}
+  # Scoring (ADR-04). mode=stub aprueba siempre (make up-core); remote llama a risk-service con fallback por monto.
+  scoring:
+    mode: ${VERABANK_SCORING_MODE:remote}
+    fallback-limit: ${VERABANK_SCORING_FALLBACK_LIMIT:500.00}
+    remote:
+      url: ${RISK_SERVICE_URL:http://localhost:8082}
+      connect-timeout: 50ms
+      timeout: 120ms
+    # Circuit breaker de Resilience4j: ventana de 20 llamadas (mínimo 10), abre con 50 % de fallos, 10 s abierto,
+    # 5 llamadas en semiabierto. Un 4xx no cuenta como fallo.
+    circuit-breaker:
+      window-size: 20
+      minimum-calls: 10
+      failure-rate-percent: 50
+      open-duration: 10s
+      half-open-calls: 5
   rail:
     commands-topic: rail.commands.v1
     replies-topic: rail.replies.v1

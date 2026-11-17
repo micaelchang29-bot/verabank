@@ -31,6 +31,7 @@ mkdir -p "$RUN_DIR"
 # Solo las credenciales del rol del servicio: las del superusuario y otros roles se quitan.
 env -u POSTGRES_PASSWORD -u VERABANK_RISK_PASSWORD -u VERABANK_BI_PASSWORD \
   -u RISK_SVC_PASSWORD -u SIM_LOADER_PASSWORD \
+VERABANK_SCORING_MODE=stub \
 POSTGRES_HOST=localhost \
 KAFKA_BOOTSTRAP_SERVERS="localhost:${KAFKA_EXTERNAL_PORT:-29092}" \
 VERABANK_MIGRATIONS_DIR="$ROOT/db/migrations" \
