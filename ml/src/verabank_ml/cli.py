@@ -6,10 +6,12 @@ Para añadir un subcomando, registra una función `(argv: list[str]) -> int` en 
 import sys
 from collections.abc import Callable, Sequence
 
+from verabank_ml.features import features_command
 from verabank_ml.paysim import check_paysim
 
 COMMANDS: dict[str, Callable[[list[str]], int]] = {
     "check-paysim": check_paysim,
+    "features": features_command,
 }
 
 

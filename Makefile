@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -72,3 +72,7 @@ data: ## Descarga PaySim a data/raw/paysim.csv (idempotente; hash en ml/data.sha
 eda: ## Ejecuta ml/notebooks/01_eda.ipynb y guarda las salidas (requiere make data)
 	@uv run --project ml --frozen jupyter nbconvert --to notebook --execute --inplace \
 	  --ExecutePreprocessor.timeout=1800 ml/notebooks/01_eda.ipynb
+
+ml-features: ## Features de los conjuntos A y B en data/features/*.parquet (requiere make data)
+	@uv run --project ml --frozen python -m verabank_ml features --set A
+	@uv run --project ml --frozen python -m verabank_ml features --set B
