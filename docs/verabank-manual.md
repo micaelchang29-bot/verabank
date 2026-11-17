@@ -271,11 +271,11 @@ unzip -o data/raw/paysim1.zip -d data/raw/paysim && mv data/raw/paysim/*.csv dat
 - [ ] En «Decisiones y concesiones»: Spring Boot 3.5 sin soporte open source y migración a 4.1 como primer cambio para producción (0.1).
 - [ ] Atribuciones y licencias de los datasets usados (§5a); PaySim es CC BY-SA 4.0.
 - [ ] ADR actualizados con lo resuelto en 0.1.
-- [ ] Revisión final de firmas; ambos comandos deben salir vacíos:
+- [ ] Revisión final de firmas; ambos comandos deben salir vacíos (el manual y el hook se excluyen del segundo porque contienen los patrones que buscan):
 
 ```bash
 git log --format=%B | grep -iE 'co-authored-by:|generated with|-session:'
-grep -rniE 'co-authored-by|generated with' --exclude-dir=.git --exclude-dir=.githooks .
+grep -rniE 'co-authored-by|generated with' --exclude=verabank-manual.md --exclude-dir=.git --exclude-dir=.githooks .
 ```
 
 - [ ] Revisar también las descripciones de los pull requests.
