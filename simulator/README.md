@@ -1,6 +1,6 @@
 # verabank-sim
 
-Simuladores de VeraBank en Python 3.12 (`uv`). Existen los subcomandos `rail` y `chaos`; el
+Simuladores de VeraBank en Python 3.12 (`uv`). Existen los subcomandos `rail`, `chaos` y `amlgen`; el
 despachador (`verabank_sim/cli.py`, tabla `COMMANDS`) queda listo para añadir `replay` y `aml`.
 
 ```bash
@@ -184,8 +184,39 @@ exporta desde `.env`); no se imprime ni se registra. La URL es `http://localhost
 Las comprobaciones de base y Kafka miran toda la base, no solo la última corrida: una saga
 atascada de antes también las hace fallar.
 
+## `amlgen`: generador AML con verdad de terreno
+
+Genera transferencias sintéticas (5.000 cuentas, 30 días desde `sim_epoch`) con un fondo legítimo y cuatro
+tipologías etiquetadas (§5a del diseño). No usa servicios; no reproduce nada por la API (eso es `replay`/`aml`, fase 4).
+
+```bash
+make amlgen [SEED=42]          # escribe data/aml/ (ignorado por Git)
+cd simulator && uv run python -m verabank_sim amlgen --seed 42 --out ../data/aml [--config amlgen.yaml]
+```
+
+| Archivo | Contenido |
+|---|---|
+| `transfers.jsonl` | Una línea por solicitud: los campos del cuerpo de `POST /api/v1/transfers` más `transfer_id` (uuid5 determinista) y `occurred_at`; montos como cadena decimal. **Sin ninguna clave ni marca de la verdad de terreno.** |
+| `ground_truth.jsonl` | Una línea por instancia: `typology`, `instance_id`, `accounts` y `transfer_ids` (en orden de tiempo; en `FAST_PASS`, entrada y salida). El sistema nunca lo recibe. |
+| `manifest.json` | Semilla, conteos, SHA-256 de los archivos y de `amlgen.yaml`, y la cobertura estimada por tipología. |
+
+Los parámetros están en `simulator/amlgen.yaml`, comentados; **todos son supuestos de negocio**. Mismos
+parámetros y misma semilla dan los mismos archivos byte a byte.
+
+- `STRUCTURING`, `COUNTRY_RISK`, `FAN_IN` y `FAST_PASS`: cada instancia tiene su identificador. Los rangos son
+  más amplios que los de las reglas, así que las variantes lentas o de montos bajos escapan.
+- **Cobertura estimada** (`rule_coverage` del manifiesto): porcentaje de instancias para las que alguna alerta de
+  la regla correspondiente incluiría al menos una de sus transferencias, según una implementación mínima e
+  independiente de §5a (parámetros en la sección `rules` del YAML; no se ajustan para ayudar a las reglas).
+  `FAN_IN` se calcula pero va marcada `in_scope: false` (fuera del corte de alcance). `FAST_PASS` no tiene regla
+  en §5a: `rule: null` y 0 %. Es una estimación sobre estos datos, no el recall medido del servicio.
+- Los códigos de `risk_countries` son ilustrativos, no la lista vigente del GAFI: la real se carga en la fase 4.
+- `sim_epoch` está duplicado de `ml/config.yaml` (una prueba comprueba que coinciden). Los `uuid` de cuentas son
+  deterministas y sintéticos: la fase 4 debe sembrar esas cuentas (con saldo) antes de reproducir.
+- Los destinos `COUNTRY_RISK` y `FAST_PASS` (salida) usan rail `EXTERNAL`; el resto, `INTERNAL`.
+
 ## Pruebas
 
-`uv run pytest` ejecuta las unitarias (el motor con reloj falso, y `chaos` con un cliente HTTP falso; sin Kafka ni servicios). La integración lleva la
+`uv run pytest` ejecuta las unitarias (el motor con reloj falso, `chaos` con un cliente HTTP falso y `amlgen`; sin Kafka ni servicios). La integración lleva la
 marca `integration`, se pide con `-m integration` y **falla** si no hay Kafka: no se omite en
 silencio. Usa un grupo de consumo propio y lo borra al terminar.
