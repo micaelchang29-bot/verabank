@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -58,3 +58,10 @@ chaos-checks: ## Comprobaciones de db/checks/chaos.sql (sagas finales, asientos,
 chaos-rail: ## Caos: make chaos-rail REJECT=0.2 DUP=0.1 N=2000 [DUP_MODE= SILENT= LOST= DELAY=]
 	@REJECT=$(REJECT) DUP=$(DUP) N=$(N) DUP_MODE=$(DUP_MODE) SILENT=$(CHAOS_SILENT) LOST=$(CHAOS_LOST) \
 	  DELAY=$(CHAOS_DELAY) scripts/chaos-rail.sh
+
+# Entorno de ML (ml/README.md).
+ml-env: ## Crea o actualiza el entorno Python de ml/ desde uv.lock
+	@uv sync --project ml --frozen
+
+ml-test: ## Pruebas de ml/ sin las que necesitan PaySim (-m "not data")
+	@uv run --project ml --frozen pytest ml/tests -m "not data"
