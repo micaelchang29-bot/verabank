@@ -14,12 +14,15 @@ services:
       VERABANK_TRANSFER_PASSWORD: ${VERABANK_TRANSFER_PASSWORD:?define VERABANK_TRANSFER_PASSWORD en .env}
       VERABANK_RISK_PASSWORD: ${VERABANK_RISK_PASSWORD:?define VERABANK_RISK_PASSWORD en .env}
       VERABANK_BI_PASSWORD: ${VERABANK_BI_PASSWORD:?define VERABANK_BI_PASSWORD en .env}
+      RISK_SVC_PASSWORD: ${RISK_SVC_PASSWORD:?define RISK_SVC_PASSWORD en .env}
+      SIM_LOADER_PASSWORD: ${SIM_LOADER_PASSWORD:?define SIM_LOADER_PASSWORD en .env}
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./db/init/initdb.d:/docker-entrypoint-initdb.d:ro
       - ./db/init/roles.sql:/sql/roles.sql:ro
+      - ./db/init/roles_runtime.sql:/sql/roles_runtime.sql:ro
     healthcheck:
       # Por TCP: durante la inicialización el servidor temporal solo escucha en socket unix.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
