@@ -1,0 +1,86 @@
+{
+  "exclusion": {
+    "max_history": 300,
+    "n_candidates": 131111,
+    "n_excluded": 0,
+    "history_length_quantiles": {
+      "0.5": 0.0,
+      "0.9": 10.0,
+      "0.99": 25.0,
+      "1.0": 62.0
+    },
+    "by_type": {
+      "rows": {
+        "CASH_OUT": {
+          "candidates": 53169,
+          "excluded": 0,
+          "excluded_share": 0.0
+        },
+        "DEBIT": {
+          "candidates": 1300,
+          "excluded": 0,
+          "excluded_share": 0.0
+        },
+        "PAYMENT": {
+          "candidates": 60759,
+          "excluded": 0,
+          "excluded_share": 0.0
+        },
+        "TRANSFER": {
+          "candidates": 15883,
+          "excluded": 0,
+          "excluded_share": 0.0
+        }
+      },
+      "chi2_p_value": null,
+      "biased_at_5_percent": false
+    },
+    "by_class": {
+      "rows": {
+        "fraud": {
+          "candidates": 1280,
+          "excluded": 0,
+          "excluded_share": 0.0
+        },
+        "legitimate": {
+          "candidates": 129831,
+          "excluded": 0,
+          "excluded_share": 0.0
+        }
+      },
+      "chi2_p_value": null,
+      "biased_at_5_percent": false
+    }
+  },
+  "strata": {
+    "above_review": 250,
+    "boundary": 37,
+    "fraud": 250,
+    "random": 463
+  },
+  "golden_by_type_and_class": {
+    "CASH_OUT/legitimate": 325,
+    "CASH_OUT/fraud": 127,
+    "DEBIT/legitimate": 5,
+    "PAYMENT/legitimate": 217,
+    "TRANSFER/legitimate": 179,
+    "TRANSFER/fraud": 147
+  },
+  "boundary": {
+    "n": 37,
+    "by_threshold": {
+      "t_review": {
+        "below": 0,
+        "at_or_above": 15,
+        "rounding_crosses_threshold": 0
+      },
+      "t_block": {
+        "below": 20,
+        "at_or_above": 2,
+        "rounding_crosses_threshold": 2
+      }
+    }
+  },
+  "rounding_numpy_vs_python_disagreements_in_valid": 0,
+  "onnx_vs_score_max_abs_diff_golden": 1.7881393432617188e-07
+}

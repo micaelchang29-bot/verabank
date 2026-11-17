@@ -1,5 +1,6 @@
 {
   "model_version": "fraud-xgb/4",
+  "model_sha256": "c794f3d619a7a2934263c2ce92e63e4ec3577cfcb5e3878d43c1ec8efb20ec99",
   "model_family": "xgb",
   "feature_set": "A",
   "feature_order": [

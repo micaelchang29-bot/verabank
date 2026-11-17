@@ -1,0 +1,49 @@
+{
+  "artifacts": {
+    "model.onnx": {
+      "sha256": "c794f3d619a7a2934263c2ce92e63e4ec3577cfcb5e3878d43c1ec8efb20ec99"
+    },
+    "shadow.onnx": {
+      "sha256": "0e2711161376b69d976e6e99734e23524a206f6c5ceda091ca954bf5920ed102"
+    },
+    "thresholds.json": {
+      "sha256": "f7d816074d5e0b4e81c7d098ba6ff8f6a901461bacde7e8c7361c36ce307414d"
+    },
+    "golden.jsonl": {
+      "sha256": "811fba62ac5938b6dbcc340994a66e29ec9d40b11d9bc3fafb7679fec1cbff2e",
+      "cases": 1000
+    }
+  },
+  "models": {
+    "champion": {
+      "registered_model": "fraud-xgb",
+      "version": "4",
+      "family": "xgb"
+    },
+    "challenger": {
+      "registered_model": "fraud-logreg",
+      "version": "4",
+      "family": "logreg"
+    }
+  },
+  "model_io": {
+    "input_name": "features",
+    "input_type": "float32 [None, n_features] en el orden de thresholds.json:feature_order",
+    "output_name": "probabilities",
+    "positive_class_column": 1
+  },
+  "inputs": {
+    "contracts/features.yaml": "5de9692aabe09dd4062ee3b258321906cab5b2c322721bd7bbb84ac2df238527",
+    "ml/config.yaml": "f06de9d0b648fc78796be9424e9434efa67d13c280bc564c3ce17bcc2d18887f",
+    "paysim.csv": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b"
+  },
+  "golden": {
+    "strata": {
+      "above_review": 250,
+      "boundary": 37,
+      "fraud": 250,
+      "random": 463
+    },
+    "onnx_vs_score_max_abs_diff": 1.7881393432617188e-07
+  }
+}
