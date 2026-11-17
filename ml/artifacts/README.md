@@ -64,6 +64,6 @@ Atribución requerida por la ficha del dataset:
 > The 28th European Modeling and Simulation Symposium (EMSS), Larnaca, Chipre, 2016.
 
 Cambios: se conservan tipo, monto y sentido de las transferencias, y solo los pasos temporales se convierten en
-`occurred_at`; los nombres de cuenta se sustituyen por alias. `golden.jsonl` es material adaptado y se comparte bajo
-CC BY-SA 4.0. El régimen de licencia de los pesos del modelo entrenado con PaySim (`model.onnx`, `shadow.onnx`) no se
-ha determinado aquí.
+`occurred_at`; los nombres de cuenta se sustituyen por alias. `golden.jsonl`, `model.onnx` y `shadow.onnx` se tratan
+como material adaptado de PaySim y se distribuyen bajo CC BY-SA 4.0, con la atribución de arriba (la de la ficha del
+dataset). El código del repositorio mantiene su propia licencia. Véase `docs/adr/ADR-11.md`.

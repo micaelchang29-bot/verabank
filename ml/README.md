@@ -182,3 +182,6 @@ Trabajo derivado en este repositorio: agregados y gráficos de `reports/` (sin f
 versionados de `artifacts/` (`golden.jsonl` contiene montos, tipos y tiempos de 1.000 transacciones de PaySim con las cuentas
 sustituidas por alias; véase `artifacts/README.md`). Por la
 cláusula SA, cualquier derivado de los datos que se redistribuya debe ir bajo CC BY-SA 4.0 con esta atribución.
+Los pesos entrenados con PaySim (`artifacts/model.onnx` y `artifacts/shadow.onnx`) y `golden.jsonl` se tratan como
+material adaptado de PaySim y se distribuyen bajo CC BY-SA 4.0, con la atribución de la ficha del dataset; el código
+del repositorio mantiene su propia licencia.
