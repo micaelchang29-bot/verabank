@@ -19,9 +19,23 @@ def test_el_despachador_conoce_rail_y_chaos_y_aplica_defaults():
     assert (args.silent_rate, args.lost_rate, args.seed) == (0.0, 0.0, 42)
     assert str(args.state_db).endswith("simulator/.state/rail.db")
     with pytest.raises(SystemExit):
-        cli.build_parser().parse_args(["replay"])
+        cli.build_parser().parse_args(["no-existe"])
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args([])
+
+
+def test_replay_aml_y_aml_eval_son_subcomandos_con_sus_valores_por_defecto():
+    replay = cli.build_parser().parse_args(["replay"])
+    assert (replay.n, replay.tps, str(replay.amount_factor), replay.start_row) == (20000, 50.0, "1", 0)
+    assert not (replay.no_warmup or replay.no_labels or replay.no_seed)
+    aml = cli.build_parser().parse_args(["aml", "--approve-reviews"])
+    assert aml.approve_reviews and aml.tps == 50.0 and str(aml.input).endswith("data/aml/transfers.jsonl")
+    evaluation = cli.build_parser().parse_args(["aml-eval"])
+    assert str(evaluation.out).endswith("docs/resultados/aml-eval.md")
+    for bad in (["replay", "--n", "0"], ["replay", "--tps", "-1"], ["replay", "--amount-factor", "x"],
+                ["replay", "--amount-factor", "0"]):
+        with pytest.raises(SystemExit):
+            cli.build_parser().parse_args(bad)
 
 
 @pytest.mark.parametrize("flags", [["--reject-rate", "1.5"], ["--delay-ms", "9:1"], ["--dup-mode", "x"]])
