@@ -1,5 +1,5 @@
 {
-  "model_version": "fraud-xgb/5",
+  "model_version": "fraud-xgb/6",
   "model_sha256": "c794f3d619a7a2934263c2ce92e63e4ec3577cfcb5e3878d43c1ec8efb20ec99",
   "model_family": "xgb",
   "feature_set": "A",
@@ -65,7 +65,7 @@
     "manual_decision": null
   },
   "provenance": {
-    "git_commit": "9d8b9b70e5aad992bc3ba9b6a1d2301958d31ba1",
+    "git_commit": "0787db81f5d81936bfe22d115cb561cdea15011e",
     "features_yaml_sha256": "5de9692aabe09dd4062ee3b258321906cab5b2c322721bd7bbb84ac2df238527",
     "csv_sha256": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b",
     "config_yaml_sha256": "184ec660f34e0adaf48c354921e40b00bb2b9b62396df397dc6b6b5137fb1452"

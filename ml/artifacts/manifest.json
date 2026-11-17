@@ -29,7 +29,7 @@
       "ir_version": 8
     },
     "thresholds.json": {
-      "sha256": "edc1c40688fe51c1c851c361c6caca787f965e8ac27fb2c16bb04a3ae4345402"
+      "sha256": "404a285d585e4ea04e55c51a05b8876eb44e840a35ebeeb1445ae8b1a545d57a"
     },
     "golden.jsonl": {
       "sha256": "9a264bb6cb343d2bdf06d73d25f0ef5d693275d6255eacca5912ef3cd2a9d355",
@@ -39,16 +39,16 @@
   "models": {
     "champion": {
       "registered_model": "fraud-xgb",
-      "version": "5",
+      "version": "6",
       "family": "xgb"
     },
     "challenger": {
       "registered_model": "fraud-logreg",
-      "version": "5",
+      "version": "6",
       "family": "logreg"
     }
   },
-  "git_commit": "9d8b9b70e5aad992bc3ba9b6a1d2301958d31ba1",
+  "git_commit": "0787db81f5d81936bfe22d115cb561cdea15011e",
   "onnxruntime_version": "1.32.0",
   "model_io": {
     "input_name": "features",
