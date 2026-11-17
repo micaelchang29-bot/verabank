@@ -152,6 +152,10 @@ pesos de clase. El escalador va dentro del `Pipeline`, ajustado solo con `train`
 - **`ml-eval-test`**: una sola vez; si existe `reports/test_evaluation.json` o una ejecución de test en MLflow,
   se niega, salvo con `--force-test` (etiqueta `test_reevaluated=true`). Añade las métricas sobre destinos no
   vistos en `train`, FPR por tipo y por tramo de monto (décadas fijas) y la comparación con aprobarlo todo.
+- **El EDA y `test`.** `notebooks/01_eda.ipynb` mide en `test`, de forma solo descriptiva, el solapamiento de
+  destinos con `train` y los fraudes por partición (con los que se comprueba el mínimo de 500 por partición de
+  §5c). No entrena, no elige hiperparámetros, umbrales ni modelo, y ninguna de esas cifras alimenta una decisión;
+  la regla de «`test` una vez» se refiere a la evaluación del modelo, que solo hace `ml-eval-test`.
 
 ## Versiones fijadas
 
