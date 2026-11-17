@@ -14,6 +14,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.math.BigDecimal;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -65,6 +67,15 @@ class ScoreLog {
     Uni<Boolean> updateShadow(UUID transferId, BigDecimal shadowScore) {
         return DbCall.limited(pool.preparedQuery(UPDATE_SHADOW).execute(Tuple.of(transferId, Numeric.create(shadowScore)))
                 .map(rows -> rows.rowCount() == 1), config.scoring().queryTimeout(), "bitácora (sombra)");
+    }
+
+    /** Abre {@code connections} conexiones a la vez para que la primera solicitud no pague el alta de la conexión. */
+    Uni<Void> warmUp(int connections) {
+        List<Uni<Void>> pings = new ArrayList<>();
+        for (int i = 0; i < connections; i++) {
+            pings.add(pool.query("SELECT 1").execute().replaceWithVoid());
+        }
+        return Uni.join().all(pings).andFailFast().replaceWithVoid();
     }
 
     Uni<Void> ping() {
