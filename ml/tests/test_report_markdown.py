@@ -37,7 +37,7 @@ def sections(text: str) -> dict[str, str]:
 
 
 def test_report_names_the_served_and_the_tested_version_without_contradiction():
-    """Si el modelo servido no es el evaluado en test, el informe nombra ambos en las dos menciones."""
+    """Si el modelo servido no es el evaluado en test, el informe nombra ambos y remite a ADR-11."""
     import json
 
     served = json.loads((REPO_ROOT / "ml/artifacts/thresholds.json").read_text())["model_version"]
@@ -47,11 +47,23 @@ def test_report_names_the_served_and_the_tested_version_without_contradiction():
     test_section = next(v for k, v in text.items() if k.startswith("Métricas en test"))
     assert served in served_section
     if served != tested:
-        assert tested in served_section and "model_sha256" in served_section
-        assert tested in test_section and served in test_section and "model_sha256" in test_section
-        adr = (REPO_ROOT / "docs/adr/ADR-11.md").read_text()
-        fam = served.split("/")[0]
-        for version in (served.split("/")[1], tested.split("/")[1]):
-            assert f"v{version}" in adr, version
-        assert "reentrenamiento determinista" in adr and "model_sha256" in adr
-        assert "corresponde a v" + tested.split("/")[1] in adr and fam in adr
+        for section in (served_section, test_section):
+            assert served in section and tested in section, section[:120]
+            assert "model_sha256" in section and "ADR-11" in section
+
+
+def test_adr_11_explains_later_versions_without_pinning_a_served_one():
+    """La evaluación de test corresponde a la versión de test_evaluation.json; ninguna otra versión se cita."""
+    import json
+
+    tested = json.loads((REPO_ROOT / "ml/reports/test_evaluation.json").read_text())["model_version"]
+    adr = (REPO_ROOT / "docs/adr/ADR-11.md").read_text()
+    assert set(re.findall(r"\bv(\d+)\b", adr)) == {tested.split("/")[1]}, "solo la versión evaluada en test"
+    for phrase in (
+        "reentrenamiento determinista",
+        "mismo `model_sha256`",
+        "mismas probabilidades en `valid`",
+        "toda versión posterior",
+        "alias `champion`",
+    ):
+        assert phrase in adr, phrase
