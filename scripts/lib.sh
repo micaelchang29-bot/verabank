@@ -19,6 +19,7 @@ set +a
 export SERVER_PORT="${SERVER_PORT:-8081}"
 
 COMPOSE=(docker compose --profile core)
+COMPOSE_ALL=(docker compose --profile core --profile risk --profile sim)
 SERVICE_DIR="$ROOT/transfer-service"
 RUN_DIR="$SERVICE_DIR/target/run"
 PID_FILE="$RUN_DIR/transfer-service.pid"

@@ -1,0 +1,8 @@
+# Solo lo que usa transfer-service/Dockerfile: el contexto es la raíz del repositorio y data/ pesa cientos de MB.
+*
+!transfer-service/mvnw
+!transfer-service/pom.xml
+!transfer-service/.mvn
+!transfer-service/src
+!db/migrations
+!contracts/events

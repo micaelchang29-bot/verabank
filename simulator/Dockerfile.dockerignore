@@ -1,0 +1,6 @@
+*
+!simulator/pyproject.toml
+!simulator/uv.lock
+!simulator/README.md
+!simulator/verabank_sim
+!contracts/events
