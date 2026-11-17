@@ -7,9 +7,11 @@ import static com.verabank.transfer.config.Sql.uuid;
 import com.verabank.transfer.scoring.ScoreResult;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.jdbc.core.SqlParameterValue;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -86,7 +88,7 @@ public class TransferRepository {
                     decision_source = :source, model_version = :model, scoring_latency_ms = :latency
                 WHERE transfer_id = :id""")
                 .param("id", transferId)
-                .param("score", score.score())
+                .param("score", new SqlParameterValue(Types.NUMERIC, score.score()))   // NULL en fallback (D7)
                 .param("decision", score.decision().name())
                 .param("source", score.source().name())
                 .param("model", score.modelVersion())

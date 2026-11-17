@@ -35,7 +35,9 @@ public class TransferEvents {
     public void scored(TransferRow t, ScoreResult score, UUID correlationId) {
         ObjectNode payload = mapper.createObjectNode();
         payload.put("transfer_id", t.transferId().toString());
-        payload.put("score", score.score().doubleValue());
+        if (score.score() != null) {   // D7: en fallback no hay score y el evento se emite sin él
+            payload.put("score", score.score().doubleValue());
+        }
         payload.put("decision", score.decision().name());
         payload.put("decision_source", score.source().name());
         payload.put("model_version", score.modelVersion());

@@ -5,7 +5,6 @@
   "type": "object",
   "required": [
     "transfer_id",
-    "score",
     "decision",
     "decision_source",
     "model_version",
@@ -45,5 +44,22 @@
       "minimum": 0
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "$comment": "Cambio de contrato pendiente de ADR-12 (D7): `score` ya no es obligatorio cuando decision_source es FALLBACK, porque sin modelo no hay score (core.transfers.fraud_score queda NULL y model_version es 'fallback-v1'). Con decision_source MODEL sigue siendo obligatorio.",
+  "if": {
+    "properties": {
+      "decision_source": {
+        "const": "FALLBACK"
+      }
+    },
+    "required": [
+      "decision_source"
+    ]
+  },
+  "then": {},
+  "else": {
+    "required": [
+      "score"
+    ]
+  }
 }
