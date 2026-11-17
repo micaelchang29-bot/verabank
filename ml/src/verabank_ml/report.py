@@ -287,7 +287,7 @@ def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
     out += ["## Limitaciones", "",
             "- Datos sintéticos (PaySim): las cifras no se extrapolan a clientes reales.",
             "- El fraude solo ocurre en TRANSFER y CASH_OUT; el modelo no ha visto fraude en PAYMENT ni DEBIT.",
-            "- Cambio de régimen en el volumen alrededor del paso 400 (ver `eda.md`): la prevalencia pasa de 0,08 % en train a 0,75 % en valid y 1,15 % en test; los umbrales fijados en valid no se trasladan limpiamente.",
+            "- Cambio de régimen en el volumen alrededor del paso 400 (ver `eda.md`): la prevalencia de fraude (sobre las filas de los cuatro tipos del modelo, TRANSFER, CASH_OUT, PAYMENT y DEBIT; sin CASH_IN) pasa de 0,099 % en train a 0,976 % en valid y 1,490 % en test; los umbrales fijados en valid no se trasladan limpiamente.",
             f"- Pocos bloques de pasos: {nb['logreg'][main]['n_blocks']} en valid con bloques de {main} pasos; los intervalos por bootstrap de bloques son poco fiables por debajo de {cfg['bootstrap']['min_blocks']}.",
             "- Casi todos los orígenes aparecen una sola vez: `src_out_*` e `is_new_beneficiary` casi no aportan información en PaySim.",
             "- El costo está dominado por el monto de los fraudes aprobados; los costos unitarios son supuestos (sensibilidad ±50 %).", ""]  # fmt: skip

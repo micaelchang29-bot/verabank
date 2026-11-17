@@ -80,6 +80,17 @@ def test_fraud_by_partition_matches_eda(table_a):
         assert prevalence == pytest.approx(rows["isFraud"].mean())
 
 
+def test_reported_prevalences_are_those_of_the_four_model_types(table_a):
+    """El informe y ADR-11 declaran la prevalencia sobre los tipos de config.types (sin CASH_IN)."""
+    by_partition = table_a.frame.groupby("partition")["is_fraud"].mean()
+    expected = [f"{100 * by_partition[n]:.3f}".replace(".", ",") + " %" for n in ("train", "valid", "test")]
+    assert expected == ["0,099 %", "0,976 %", "1,490 %"]
+    for path in (REPO_ROOT / "ml/reports/model-report.md", REPO_ROOT / "docs/adr/ADR-11.md"):
+        text = path.read_text()
+        assert all(value in text for value in expected[1:]), path
+        assert "0,75 %" not in text and "1,15 %" not in text, path
+
+
 def test_gap_rows_are_kept_as_history_but_labelled_gap(table_a):
     frame = table_a.frame
     assert set(frame["partition"].unique()) == {"train", "valid", "test", "gap"}

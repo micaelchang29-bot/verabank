@@ -185,7 +185,7 @@ El PR-AUC de B es ≥ 0.95: es el artefacto del simulador descrito en §5b (el f
 
 - Datos sintéticos (PaySim): las cifras no se extrapolan a clientes reales.
 - El fraude solo ocurre en TRANSFER y CASH_OUT; el modelo no ha visto fraude en PAYMENT ni DEBIT.
-- Cambio de régimen en el volumen alrededor del paso 400 (ver `eda.md`): la prevalencia pasa de 0,08 % en train a 0,75 % en valid y 1,15 % en test; los umbrales fijados en valid no se trasladan limpiamente.
+- Cambio de régimen en el volumen alrededor del paso 400 (ver `eda.md`): la prevalencia de fraude (sobre las filas de los cuatro tipos del modelo, TRANSFER, CASH_OUT, PAYMENT y DEBIT; sin CASH_IN) pasa de 0,099 % en train a 0,976 % en valid y 1,490 % en test; los umbrales fijados en valid no se trasladan limpiamente.
 - Pocos bloques de pasos: 6 en valid con bloques de 24 pasos; los intervalos por bootstrap de bloques son poco fiables por debajo de 10.
 - Casi todos los orígenes aparecen una sola vez: `src_out_*` e `is_new_beneficiary` casi no aportan información en PaySim.
 - El costo está dominado por el monto de los fraudes aprobados; los costos unitarios son supuestos (sensibilidad ±50 %).
