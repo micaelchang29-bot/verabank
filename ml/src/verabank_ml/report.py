@@ -138,18 +138,12 @@ def build_report(cfg, selection, ablation, thresholds, test, ranking) -> str:
            "Generado por `make ml-report`. Hiperparámetros, umbrales y selección usan solo `valid`; `test` se evalúa una vez con todo congelado.", ""]  # fmt: skip
     # --- modelo servido
     out.append("## Modelo servido")
-    if winner is None:
-        out += [
-            f"**Decisión pendiente.** {selection['reason']}. No hay `thresholds.json` ni alias `champion`.",
-            "",
-        ]
-    else:
-        manual = selection.get("manual_decision")
-        why = f"{selection['reason']}" + (
-            f"; decisión manual: {manual['reason']}" if manual else ""
-        )
-        v = thresholds["model_version"] if thresholds else "(sin thresholds.json)"
-        out += [f"**{winner}** (`{v}`), conjunto A. Motivo: {why}.", ""]
+    manual = selection.get("manual_decision")
+    why = f"{selection['reason']}" + (f"; decisión manual: {manual['reason']}" if manual else "")
+    v = thresholds["model_version"] if thresholds else "(sin thresholds.json)"
+    out += [f"**{winner}** (`{v}`), conjunto A. Motivo: {why}.", ""]
+    for warning in selection.get("warnings", []):
+        out += [f"> **Advertencia:** {warning}.", ""]
     out.append(md_table(["Criterio", "Regla", "Valor", "Resultado"],
                         [[c["name"], c["rule"], json.dumps(c["value"], ensure_ascii=False) if isinstance(c["value"], dict) else f"{c['value']:.5g}", c["result"]]
                          for c in selection["criteria"]]))  # fmt: skip
@@ -326,9 +320,9 @@ def report_command(argv: list[str]) -> int:
     valid = modeling.load_features("A", ("valid",))
     winner = selection["winner"]
     ranking = {}
-    if winner in (None, "xgb"):
+    if winner == "xgb":
         ranking["xgb"], _ = explain_xgb(selection, valid, cols)
-    if winner in (None, "logreg"):
+    else:
         ranking["logreg"] = explain_logreg(selection, cols)
     REPORT_PATH.write_text(build_report(cfg, selection, ablation, thresholds, test, ranking))
     print(f"escrito {REPORT_PATH} y {ABLATION_PATH}")

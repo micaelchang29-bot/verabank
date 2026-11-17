@@ -9,11 +9,11 @@ import pytest
 from verabank_ml import eval_test, modeling
 from verabank_ml.eval_test import TestAlreadyEvaluated, check_test_guard, evaluate_test, group_rates
 from verabank_ml.features import load_config
-from verabank_ml.selection import FAIL, INDETERMINADO, PASS, select_model
+from verabank_ml.selection import FAIL, PASS, select_model
 
 CFG = {
     "selection": {"min_pr_auc_gain": 0.02, "max_inference_p95_ms": 10},
-    "bootstrap": {"block_steps": 24, "min_blocks": 10},
+    "bootstrap": {"block_steps": 24, "sensitivity_block_steps": 6, "min_blocks": 10},
 }
 
 
@@ -22,20 +22,15 @@ def model_result(pr_auc, cost):
 
 
 def interval(n_blocks, low, high):
-    return {"24": {"n_blocks": n_blocks, "metrics": {"pr_auc": {"low": low, "high": high}}}}
+    return {"n_blocks": n_blocks, "metrics": {"pr_auc": {"low": low, "high": high}}}
 
 
-def select(
-    lr_pr=0.40,
-    xgb_pr=0.60,
-    lr_cost=100.0,
-    xgb_cost=90.0,
-    p95=1.0,
-    n_blocks=20,
-    lr_ci=(0.3, 0.5),
-    xgb_ci=(0.55, 0.65),
-):
-    intervals = {"logreg": interval(n_blocks, *lr_ci), "xgb": interval(n_blocks, *xgb_ci)}
+def select(lr_pr=0.40, xgb_pr=0.60, lr_cost=100.0, xgb_cost=90.0, p95=1.0, n24=20, n6=60,
+           lr24=(0.3, 0.5), xgb24=(0.55, 0.65), lr6=(0.3, 0.5), xgb6=(0.55, 0.65)):  # fmt: skip
+    intervals = {
+        "logreg": {"24": interval(n24, *lr24), "6": interval(n6, *lr6)},
+        "xgb": {"24": interval(n24, *xgb24), "6": interval(n6, *xgb6)},
+    }
     return select_model(
         model_result(lr_pr, lr_cost), model_result(xgb_pr, xgb_cost), p95, intervals, CFG
     )
@@ -58,7 +53,6 @@ def test_xgb_wins_when_all_four_criteria_pass():
         ({"xgb_cost": 100.0}, "cost_lower"),
         ({"xgb_cost": 120.0}, "cost_lower"),
         ({"p95": 10.0}, "inference_p95"),
-        ({"xgb_ci": (0.45, 0.65)}, "pr_auc_intervals_do_not_overlap"),
     ],
 )
 def test_logreg_wins_when_one_criterion_fails(kwargs, failing):
@@ -72,16 +66,40 @@ def test_gain_boundary_is_inclusive():
     assert results(select(lr_pr=0.40, xgb_pr=0.4199))["pr_auc_gain"] == FAIL
 
 
-def test_few_blocks_make_the_interval_criterion_indeterminate_and_pending():
-    sel = select(n_blocks=6)
-    assert results(sel)["pr_auc_intervals_do_not_overlap"] == INDETERMINADO
-    assert sel["winner"] is None and sel["status"] == "PENDIENTE"
+OVERLAP = (0.45, 0.65)  # con lr (0.3, 0.5) se solapa; (0.55, 0.65) no
 
 
-def test_a_failing_criterion_decides_even_with_indeterminate_intervals():
-    sel = select(n_blocks=6, xgb_cost=150.0)
-    assert results(sel)["pr_auc_intervals_do_not_overlap"] == INDETERMINADO
+def test_intervals_same_result_in_both_sizes_without_overlap_pass():
+    sel = select(xgb24=(0.55, 0.65), xgb6=(0.56, 0.66))
+    assert results(sel)["pr_auc_intervals_do_not_overlap"] == PASS
+    assert sel["winner"] == "xgb"
+
+
+def test_intervals_overlapping_in_both_sizes_fail():
+    sel = select(xgb24=OVERLAP, xgb6=OVERLAP)
+    assert results(sel)["pr_auc_intervals_do_not_overlap"] == FAIL
     assert sel["winner"] == "logreg"
+
+
+@pytest.mark.parametrize("kwargs", [{"xgb24": OVERLAP}, {"xgb6": OVERLAP}])
+def test_intervals_that_differ_between_sizes_fail(kwargs):
+    sel = select(**kwargs)
+    criterion = next(c for c in sel["criteria"] if c["name"] == "pr_auc_intervals_do_not_overlap")
+    assert criterion["result"] == FAIL
+    assert criterion["value"]["differs_between_block_sizes"] is True
+    assert sel["winner"] == "logreg"
+
+
+def test_few_blocks_warn_but_do_not_stop_or_make_it_indeterminate():
+    sel = select(n24=6, n6=21)
+    assert results(sel)["pr_auc_intervals_do_not_overlap"] == PASS
+    assert sel["winner"] == "xgb" and sel["status"] == "DECIDIDO"
+    assert len(sel["warnings"]) == 1 and "6 bloques de 24 pasos" in sel["warnings"][0]
+    assert select()["warnings"] == []
+
+
+def test_both_sizes_with_few_blocks_give_two_warnings():
+    assert len(select(n24=6, n6=8)["warnings"]) == 2
 
 
 # --- guarda de ml-eval-test ------------------------------------------------------------------------

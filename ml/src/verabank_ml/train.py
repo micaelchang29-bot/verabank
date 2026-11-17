@@ -63,7 +63,9 @@ def print_table(rows: list[dict]) -> None:
 def train_command(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="python -m verabank_ml train")
     parser.add_argument(
-        "--winner", choices=FAMILIES, help="decisión manual cuando la selección es PENDIENTE"
+        "--winner",
+        choices=FAMILIES,
+        help="override manual de la selección (queda registrado como manual)",
     )
     args = parser.parse_args(argv)
 
@@ -194,12 +196,7 @@ def train_command(argv: list[str]) -> int:
         mlflow.log_artifact(str(SELECTION_PATH))
 
         report_selection(selection, finals, intervals, cfg)
-        winner = selection["winner"]
-        if winner is None:
-            print("\nDECISIÓN PENDIENTE: no se escribe thresholds.json ni se asignan alias. "
-                  "Decide el criterio indeterminado y ejecuta make ml-train ARGS='--winner logreg|xgb'.")  # fmt: skip
-        else:
-            write_thresholds(winner, selection, finals, cols, cfg, client)
+        write_thresholds(selection["winner"], selection, finals, cols, cfg, client)
     print(f"\nml-train terminado en {time.perf_counter() - started:.0f} s")
     return 0
 
@@ -223,6 +220,8 @@ def report_selection(selection, finals, intervals, cfg) -> None:
     print("\n== selección")
     for c in selection["criteria"]:
         print(f"  {c['result']:<14} {c['name']}: {c['value']}")
+    for warning in selection["warnings"]:
+        print(f"  ADVERTENCIA: {warning}")
     print(f"  -> {selection['status']}: ganador {selection['winner']} ({selection['reason']})")
 
 

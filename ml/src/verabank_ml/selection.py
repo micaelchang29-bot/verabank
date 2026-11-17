@@ -1,13 +1,15 @@
-"""Criterio de selección de modelo (docs/diseno.md §5d), calculado por código.
+"""Criterio de selección de modelo (docs/diseno.md §5d, decisión D3), calculado por código.
 
 El boosting se sirve solo si, en `valid`: (1) mejora el PR-AUC en >= min_pr_auc_gain, (2) con intervalos
-que no se solapan, (3) baja el costo y (4) su inferencia p95 es < max_inference_p95_ms. Si no, gana la
-regresión logística. Si el criterio de intervalos no se puede aplicar (menos de `min_blocks` bloques) se
-marca INDETERMINADO. Una condición en FAIL decide por sí sola (la conjunción ya es falsa); sin FAIL, un
-INDETERMINADO deja la decisión pendiente.
+que no se solapan, (3) baja el costo y (4) su inferencia p95 es < max_inference_p95_ms.
+
+Criterio de intervalos (D3): se evalúa con bloques de `bootstrap.block_steps` (24) pasos y se contrasta con los
+de `sensitivity_block_steps` (6). Pasa solo si no hay solape con ambos tamaños; si el resultado difiere entre
+tamaños, cuenta como NO cumplido. Tener menos de `min_blocks` bloques no detiene ni deja indeterminada la
+selección: se registra como advertencia en `warnings`.
 """
 
-PASS, FAIL, INDETERMINADO = "PASS", "FAIL", "INDETERMINADO"
+PASS, FAIL = "PASS", "FAIL"
 _TOLERANCE = 1e-12  # 0,42 - 0,40 = 0,01999… en coma flotante: el borde >= 0,02 debe incluirse
 
 
@@ -19,7 +21,6 @@ def select_model(
     `intervals[familia][block_steps]` = {"n_blocks", "metrics": {"pr_auc": {"low", "high"}, ...}}.
     """
     rules = cfg["selection"]
-    main = str(cfg["bootstrap"]["block_steps"])
     gain = xgb["pr_auc"] - logreg["pr_auc"]
     criteria = [
         {
@@ -29,32 +30,38 @@ def select_model(
             "result": PASS if gain >= rules["min_pr_auc_gain"] - _TOLERANCE else FAIL,
         }
     ]
-    lr_ci, xgb_ci = intervals["logreg"][main], intervals["xgb"][main]
-    n_blocks = lr_ci["n_blocks"]
-    interval_value = {
-        "n_blocks_valid": n_blocks,
-        "block_steps": int(main),
-        "logreg_pr_auc_interval": [
-            lr_ci["metrics"]["pr_auc"]["low"],
-            lr_ci["metrics"]["pr_auc"]["high"],
-        ],
-        "xgb_pr_auc_interval": [
-            xgb_ci["metrics"]["pr_auc"]["low"],
-            xgb_ci["metrics"]["pr_auc"]["high"],
-        ],
+    sizes = {
+        "main": str(cfg["bootstrap"]["block_steps"]),
+        "sensitivity": str(cfg["bootstrap"]["sensitivity_block_steps"]),
     }
-    if n_blocks < cfg["bootstrap"]["min_blocks"]:
-        result = INDETERMINADO
-    elif xgb_ci["metrics"]["pr_auc"]["low"] > lr_ci["metrics"]["pr_auc"]["high"]:
+    value, no_overlap, warnings = {}, {}, []
+    for label, size in sizes.items():
+        lr_ci, xgb_ci = intervals["logreg"][size], intervals["xgb"][size]
+        lr, xg = lr_ci["metrics"]["pr_auc"], xgb_ci["metrics"]["pr_auc"]
+        no_overlap[label] = xg["low"] > lr["high"]
+        value[f"block_steps_{size}"] = {
+            "n_blocks_valid": lr_ci["n_blocks"],
+            "logreg_pr_auc_interval": [lr["low"], lr["high"]],
+            "xgb_pr_auc_interval": [xg["low"], xg["high"]],
+            "no_overlap": bool(no_overlap[label]),
+        }
+        if lr_ci["n_blocks"] < cfg["bootstrap"]["min_blocks"]:
+            warnings.append(
+                f"valid tiene {lr_ci['n_blocks']} bloques de {size} pasos (menos de "
+                f"{cfg['bootstrap']['min_blocks']}): los intervalos por bootstrap de bloques son poco fiables"
+            )
+    if no_overlap["main"] and no_overlap["sensitivity"]:
         result = PASS
     else:
         result = FAIL
+        if no_overlap["main"] != no_overlap["sensitivity"]:
+            value["differs_between_block_sizes"] = True
     criteria.append(
         {
             "name": "pr_auc_intervals_do_not_overlap",
-            "rule": f"low(xgb) > high(logreg) con bloques de {main} pasos y al menos "
-            f"{cfg['bootstrap']['min_blocks']} bloques en valid",
-            "value": interval_value,
+            "rule": f"low(xgb) > high(logreg) con bloques de {sizes['main']} y de {sizes['sensitivity']} pasos; "
+            "si difieren, cuenta como no cumplido",
+            "value": value,
             "result": result,
         }
     )
@@ -75,18 +82,15 @@ def select_model(
             "result": PASS if latency_p95_ms < rules["max_inference_p95_ms"] else FAIL,
         }
     )
-    results = [c["result"] for c in criteria]
-    if FAIL in results:
-        winner, status = "logreg", "DECIDIDO"
-        reason = "el boosting no se sirve: falla " + ", ".join(
-            c["name"] for c in criteria if c["result"] == FAIL
-        )
-    elif INDETERMINADO in results:
-        winner, status = None, "PENDIENTE"
-        reason = "criterio(s) indeterminado(s): " + ", ".join(
-            c["name"] for c in criteria if c["result"] == INDETERMINADO
-        )
+    failing = [c["name"] for c in criteria if c["result"] == FAIL]
+    if failing:
+        winner, reason = "logreg", "el boosting no se sirve: falla " + ", ".join(failing)
     else:
-        winner, status = "xgb", "DECIDIDO"
-        reason = "el boosting cumple los cuatro criterios"
-    return {"status": status, "winner": winner, "reason": reason, "criteria": criteria}
+        winner, reason = "xgb", "el boosting cumple los cuatro criterios"
+    return {
+        "status": "DECIDIDO",
+        "winner": winner,
+        "reason": reason,
+        "warnings": warnings,
+        "criteria": criteria,
+    }

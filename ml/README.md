@@ -137,12 +137,13 @@ pesos de clase. El escalador va dentro del `Pipeline`, ajustado solo con `train`
   el FPR real; en `test` se usan esos mismos umbrales y se informa el FPR real de `test`.
 - **Intervalos**: bootstrap de bloques de pasos (24 y, como sensibilidad, 6), 1.000 remuestreos, percentiles al
   95 %, semilla fija. Con menos de `bootstrap.min_blocks` (10) bloques el intervalo no es concluyente:
-  `valid` tiene 6 bloques de 24 pasos y `test` 8.
-- **Selección** (`selection.py`, `reports/selection.json`): el boosting se sirve solo si mejora el PR-AUC en ≥ 0,02,
-  con intervalos que no se solapan, baja el costo y su p95 en ONNX Runtime (un hilo, una fila por llamada,
-  10.000 llamadas) es < 10 ms. Con menos de 10 bloques el criterio de intervalos es `INDETERMINADO`: si otro
-  criterio falla, gana la logística; si no, la decisión queda `PENDIENTE` y no se escribe `thresholds.json`.
-  `make ml-train ARGS="--winner xgb|logreg"` registra una decisión manual.
+  `valid` tiene 6 bloques de 24 pasos y `test` 8 (advertencia, no parada).
+- **Selección** (`selection.py`, `reports/selection.json`; regla D3): el boosting se sirve solo si mejora el PR-AUC
+  en ≥ 0,02, con intervalos que no se solapan, baja el costo y su p95 en ONNX Runtime (un hilo, una fila por
+  llamada, 10.000 llamadas) es < 10 ms. Los intervalos se evalúan con bloques de 24 pasos y se contrastan con
+  los de 6: si el resultado difiere entre tamaños, cuenta como no cumplido. Tener menos de 10 bloques no
+  detiene la selección: queda como advertencia en `selection.json` y en `model-report.md`.
+  `make ml-train ARGS="--winner xgb|logreg"` es un override manual y queda registrado como tal.
 - **`artifacts/thresholds.json`** (solo con ganador): `model_version`, `feature_set`, `feature_order`, `t_review`,
   `t_block`, `rounding_decimals`, regla de decisión y métricas de `valid`. Alias de MLflow: `champion` y `challenger`.
 - **`ml-eval-test`**: una sola vez; si existe `reports/test_evaluation.json` o una ejecución de test en MLflow,
