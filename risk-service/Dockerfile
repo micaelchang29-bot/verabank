@@ -1,5 +1,5 @@
 # risk-service: una imagen, el rol se elige al arrancar con VERABANK_ROLE=scoring|stream (ADR-08, D3).
-# El contexto es la RAÍZ del repositorio (necesita ml/artifacts):
+# El contexto es la RAÍZ del repositorio (necesita ml/artifacts y contracts/events):
 #   docker build -f risk-service/Dockerfile -t verabank/risk-service:dev .      (make build-risk)
 
 FROM eclipse-temurin:21-jdk AS build
@@ -9,6 +9,8 @@ COPY risk-service/.mvn risk-service/.mvn
 # Los artefactos del modelo se leen de ml/artifacts al compilar (D2); no hay copias en el repositorio.
 COPY ml/artifacts/model.onnx ml/artifacts/thresholds.json ml/artifacts/manifest.json ml/artifacts/
 COPY ml/artifacts/challenger/model.onnx ml/artifacts/challenger/
+# Esquemas de eventos que valida el rol stream (una sola copia, la de contracts/; viajan dentro del jar).
+COPY contracts/events/envelope.v1.json contracts/events/TransferCompleted.v1.schema.json contracts/events/FraudLabelConfirmed.v1.schema.json contracts/events/
 COPY risk-service/src risk-service/src
 RUN cd risk-service && ./mvnw -B -ntp -q -DskipTests package
 

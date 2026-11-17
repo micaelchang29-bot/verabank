@@ -137,6 +137,10 @@ paths:
         - name: severity
           in: query
           schema: { $ref: '#/components/schemas/AlertSeverity' }
+        # Adición 4.E (anotada para ADR-12): filtro por regla.
+        - name: rule_code
+          in: query
+          schema: { type: string, minLength: 1 }
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
@@ -146,7 +150,9 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: Página de alertas, de mayor a menor severidad y antigüedad.
+          description: >
+            Cola de revisión: de mayor a menor severidad y, a igual severidad, de la más antigua a la más reciente.
+            `next_cursor` es opaco y es `null` en la última página.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AlertPage' }
@@ -163,6 +169,10 @@ paths:
       tags: [aml]
       operationId: updateAmlAlert
       summary: Avanzar o cerrar una alerta AML
+      description: >
+        Transiciones válidas: `OPEN → IN_REVIEW`; `IN_REVIEW → ESCALATED | CLOSED_FALSE_POSITIVE | CLOSED_CONFIRMED`;
+        `ESCALATED → CLOSED_*`. Al cerrar se fijan `closed_at` y `closed_by` (el canal de la API key) y cada cambio
+        queda en la auditoría (`AML_ALERT_STATUS_CHANGED`).
       parameters:
         - name: id
           in: path
@@ -183,6 +193,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/AlertNotFound' }
         '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '409': { $ref: '#/components/responses/AlertTransitionInvalid' }   # adición 4.E (ADR-12)
         '429': { $ref: '#/components/responses/RateLimited' }
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -503,6 +514,17 @@ components:
               - properties:
                   type: { const: alert-not-found }
                   status: { const: 404 }
+    # Adición 4.E (ADR-12): transición de alerta fuera de la máquina de estados.
+    AlertTransitionInvalid:
+      description: 409 · La alerta no admite esa transición desde su estado actual. No reintentar.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - properties:
+                  type: { const: alert-transition-invalid }
+                  status: { const: 409 }
     IdempotencyInProgress:
       description: 409 · Misma clave, solicitud original aún en curso. Reintentar tras `Retry-After`.
       headers:

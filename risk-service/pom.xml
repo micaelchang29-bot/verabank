@@ -18,6 +18,7 @@
     <quarkus.platform.version>3.40.1.2</quarkus.platform.version>
     <onnxruntime.version>1.32.0</onnxruntime.version>
     <archunit.version>1.4.1</archunit.version>
+    <json-schema-validator.version>1.5.9</json-schema-validator.version>   <!-- la misma que transfer-service -->
     <testcontainers.version>1.21.4</testcontainers.version>   <!-- la misma que transfer-service -->
     <!-- Artefactos del modelo (ADR-05): se leen de ml/artifacts, sin copias en el repositorio (D2). -->
     <verabank.artifacts.dir>${project.basedir}/../ml/artifacts</verabank.artifacts.dir>
@@ -55,6 +56,15 @@
       <artifactId>quarkus-smallrye-health</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-messaging-kafka</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.networknt</groupId>
+      <artifactId>json-schema-validator</artifactId>
+      <version>${json-schema-validator.version}</version>
+    </dependency>
+    <dependency>
       <groupId>com.microsoft.onnxruntime</groupId>
       <artifactId>onnxruntime</artifactId>
       <version>${onnxruntime.version}</version>
@@ -78,6 +88,12 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>postgresql</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>kafka</artifactId>
       <version>${testcontainers.version}</version>
       <scope>test</scope>
     </dependency>
@@ -120,6 +136,16 @@
           <include>thresholds.json</include>
           <include>manifest.json</include>
           <include>challenger/model.onnx</include>
+        </includes>
+      </resource>
+      <!-- Esquemas que valida el rol stream; una sola copia, la de contracts/ (no viajan copias en el repositorio). -->
+      <resource>
+        <directory>${verabank.contracts.dir}/events</directory>
+        <targetPath>contracts/events</targetPath>
+        <includes>
+          <include>envelope.v1.json</include>
+          <include>TransferCompleted.v1.schema.json</include>
+          <include>FraudLabelConfirmed.v1.schema.json</include>
         </includes>
       </resource>
     </resources>

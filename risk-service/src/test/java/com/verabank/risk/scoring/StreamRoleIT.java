@@ -2,23 +2,20 @@ package com.verabank.risk.scoring;
 
 import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.equalTo;
 
 import com.verabank.risk.support.Requests;
+import io.quarkus.arc.Arc;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
 import io.restassured.http.ContentType;
+import io.smallrye.reactive.messaging.kafka.KafkaClientService;
 import java.util.Map;
 import java.util.UUID;
-import org.eclipse.microprofile.config.ConfigProvider;
 import org.junit.jupiter.api.Test;
 
-/**
- * D3: la misma imagen con {@code VERABANK_ROLE=stream} no activa el scoring (ni carga el modelo ni mide etapas), y el
- * rol scoring tampoco abre consumidores Kafka: el servicio no incluye ningún cliente de Kafka.
- */
+/** D3: la misma imagen con {@code VERABANK_ROLE=stream} no activa el scoring (ni carga el modelo ni mide etapas). */
 @QuarkusTest
 @TestProfile(StreamRoleIT.StreamRole.class)
 class StreamRoleIT {
@@ -26,7 +23,7 @@ class StreamRoleIT {
     public static class StreamRole implements QuarkusTestProfile {
         @Override
         public Map<String, String> getConfigOverrides() {
-            return Map.of("verabank.role", "stream");
+            return Map.of("verabank.role", "stream", "verabank.api-keys", "ops:ops-test-key-0123456789");
         }
     }
 
@@ -39,12 +36,23 @@ class StreamRoleIT {
     }
 
     @Test
-    void theServiceHasNoKafkaClient() {
-        assertThatThrownBy(() -> Class.forName("org.apache.kafka.clients.consumer.KafkaConsumer"))
-                .isInstanceOf(ClassNotFoundException.class);
-        assertThatThrownBy(() -> Class.forName("io.smallrye.reactive.messaging.kafka.KafkaConnector"))
-                .isInstanceOf(ClassNotFoundException.class);
-        assertThat(ConfigProvider.getConfig().getPropertyNames())
-                .noneMatch(name -> name.startsWith("mp.messaging") || name.startsWith("kafka."));
+    void theModelIsNotLoadedNorIsTheScoringStateCreated() {
+        // D3: con el rol stream no hay ModelRegistry (único punto que crea la sesión de ONNX Runtime) ni lecturas del modelo.
+        assertThat(Arc.container().select(ModelRegistry.class).isResolvable()).isFalse();
+        assertThat(Arc.container().select(ScoringService.class).isResolvable()).isFalse();
+    }
+
+    @Test
+    void streamOpensItsConsumersAndNothingElseDoes() {
+        KafkaClientService kafka = Arc.container().select(KafkaClientService.class).get();
+        assertThat(kafka.getConsumer("transfer-events")).isNotNull();
+        assertThat(kafka.getConsumer("fraud-labels")).isNotNull();
+    }
+
+    @Test
+    void readinessReportsDatabaseAndKafka() {
+        given().get("/q/health/ready").then().statusCode(200).body("status", equalTo("UP"))
+                .body("checks.find { it.name == 'stream' }.data.database", equalTo("UP"))
+                .body("checks.find { it.name == 'stream' }.data.kafka", equalTo("UP"));
     }
 }

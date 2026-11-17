@@ -8,3 +8,6 @@
 !ml/artifacts/thresholds.json
 !ml/artifacts/manifest.json
 !ml/artifacts/challenger/model.onnx
+!contracts/events/envelope.v1.json
+!contracts/events/TransferCompleted.v1.schema.json
+!contracts/events/FraudLabelConfirmed.v1.schema.json
