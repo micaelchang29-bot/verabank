@@ -179,6 +179,12 @@ Una caída entre `tx1` y `tx2` la recupera el poller: vuelve a pedir el score (i
 - Decisión: 3.5.x, último parche, evitando APIs retiradas en 4.x.
 - Consecuencias: respeta el stack, pero publicar sobre una línea sin soporte invita preguntas. Primera decisión a revisar (§8).
 
+**ADR-11 · Criterio de selección del modelo de fraude con pocos bloques de validación**
+- Contexto: §5d sirve el boosting solo si mejora el PR-AUC en 0,02 o más con intervalos que no se solapan, baja el costo y su p95 es < 10 ms. Los intervalos son por bootstrap de bloques de pasos y `valid` (pasos 425–550) solo tiene 6 bloques de 24 pasos (21 de 6 pasos); `test`, 8 y 29. Con menos de 10 bloques el intervalo es poco fiable.
+- Opciones: detener la selección y decidir a mano cuando hay menos de 10 bloques; reducir el bloque a 6 pasos; evaluar con 24 y contrastar con 6.
+- Decisión: el criterio se evalúa con bloques de 24 pasos y se contrasta con los de 6; pasa solo si no hay solape con ambos tamaños, y si el resultado difiere cuenta como no cumplido. Tener menos de `min_blocks` bloques no detiene la selección ni la deja indeterminada: se registra como advertencia en `selection.json` y en `model-report.md`. `--winner` queda como override manual, registrado como tal. Con los datos actuales gana XGBoost (`fraud-xgb`, depth 6, `scale_pos_weight` 300): PR-AUC 0,563 [0,480–0,644] frente a 0,360 [0,249–0,479], costo 530,8 M frente a 533,1 M, p95 0,004 ms; sin solape con ambos tamaños.
+- Consecuencias: la selección es reproducible y no depende de una decisión manual por corrida. La regla es conservadora (ante discrepancia entre tamaños, gana la logística), pero no compensa la falta de bloques: con 6 el intervalo sigue siendo poco fiable y la ventaja de XGBoost en costo (0,4 %) está dentro del ruido. En `test` (evaluado una vez, umbrales congelados) el FPR real a la tasa nominal de 0,5 % fue 0,84 % y la tasa de revisión 1,0 % (el tope era 0,5 %): los umbrales fijados en `valid` no se trasladan limpiamente porque la prevalencia cambia de 0,75 % a 1,15 %. Revisar si hay un periodo de validación más largo o un recalibrado de umbrales antes de servir.
+
 ### 2.6 Herramientas y licencias
 
 Ninguna requiere tarjeta.
