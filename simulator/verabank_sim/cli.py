@@ -17,6 +17,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "rail": ("verabank_sim.rail.cli", "rail interbancario simulado (consume rail.commands.v1)"),
     "chaos": ("verabank_sim.chaos.cli", "carga de transferencias EXTERNAL con reenvíos y reusos de clave"),
     "amlgen": ("verabank_sim.amlgen.cli", "generador AML con verdad de terreno (data/aml)"),
+    "replay": ("verabank_sim.replay.cli", "reproduce la partición de prueba de PaySim por la API (D1, D10, D11)"),
     "watch": ("verabank_sim.watch", "vigila el latido del simulador mientras chaos espera (lo usa make chaos-rail)"),
 }
 
