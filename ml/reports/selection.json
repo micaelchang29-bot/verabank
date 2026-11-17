@@ -1,0 +1,362 @@
+{
+  "status": "PENDIENTE",
+  "winner": null,
+  "reason": "criterio(s) indeterminado(s): pr_auc_intervals_do_not_overlap",
+  "criteria": [
+    {
+      "name": "pr_auc_gain",
+      "rule": "PR-AUC(xgb) - PR-AUC(logreg) >= 0.02",
+      "value": 0.20309994334223042,
+      "result": "PASS"
+    },
+    {
+      "name": "pr_auc_intervals_do_not_overlap",
+      "rule": "low(xgb) > high(logreg) con bloques de 24 pasos y al menos 10 bloques en valid",
+      "value": {
+        "n_blocks_valid": 6,
+        "block_steps": 24,
+        "logreg_pr_auc_interval": [
+          0.24878556714140873,
+          0.47883977767545627
+        ],
+        "xgb_pr_auc_interval": [
+          0.48024692312267847,
+          0.6441889785785091
+        ]
+      },
+      "result": "INDETERMINADO"
+    },
+    {
+      "name": "cost_lower",
+      "rule": "costo(xgb) < costo(logreg) en valid, cada uno con sus umbrales",
+      "value": {
+        "logreg": 533098846.56,
+        "xgb": 530831837.98
+      },
+      "result": "PASS"
+    },
+    {
+      "name": "inference_p95",
+      "rule": "p95 de xgb en ONNX Runtime < 10 ms",
+      "value": 0.004519,
+      "result": "PASS"
+    }
+  ],
+  "manual_decision": null,
+  "models": {
+    "logreg": {
+      "name": "fraud-logreg",
+      "version": "3",
+      "run_id": "d2129ac1da5343c7bb0dffdbf14b43bf"
+    },
+    "xgb": {
+      "name": "fraud-xgb",
+      "version": "3",
+      "run_id": "7e88cf2441124fa6851a2974a7d3c508"
+    }
+  },
+  "best_configs": {
+    "logreg": {
+      "model": "logreg",
+      "C": 10.0
+    },
+    "xgb": {
+      "model": "xgb",
+      "max_depth": 6,
+      "scale_pos_weight": 300,
+      "best_iteration": 20
+    }
+  },
+  "intervals": {
+    "logreg": {
+      "24": {
+        "n_blocks": 6,
+        "block_steps": 24,
+        "metrics": {
+          "recall@fpr_0.005": {
+            "low": 0.3534091628672746,
+            "high": 0.43832223093672923
+          },
+          "fpr@fpr_0.005": {
+            "low": 0.0029830889002068414,
+            "high": 0.006546906743105224
+          },
+          "recall_weighted@fpr_0.005": {
+            "low": 0.6889154661721958,
+            "high": 0.7966343741845879
+          },
+          "recall@fpr_0.001": {
+            "low": 0.13992345361052458,
+            "high": 0.21335078534031413
+          },
+          "fpr@fpr_0.001": {
+            "low": 0.0005300959369705537,
+            "high": 0.0012837205890443618
+          },
+          "recall_weighted@fpr_0.001": {
+            "low": 0.5313718600079977,
+            "high": 0.6702113077039841
+          },
+          "cost": {
+            "low": 359358290.73375005,
+            "high": 653825820.8605
+          },
+          "pr_auc": {
+            "low": 0.24878556714140873,
+            "high": 0.47883977767545627
+          }
+        }
+      },
+      "6": {
+        "n_blocks": 21,
+        "block_steps": 6,
+        "metrics": {
+          "recall@fpr_0.005": {
+            "low": 0.30166148495105133,
+            "high": 0.5045224913739464
+          },
+          "fpr@fpr_0.005": {
+            "low": 0.0030074264426213854,
+            "high": 0.008261610161777547
+          },
+          "recall_weighted@fpr_0.005": {
+            "low": 0.690761493734397,
+            "high": 0.8130041195912009
+          },
+          "recall@fpr_0.001": {
+            "low": 0.1380840876981843,
+            "high": 0.2217113669120798
+          },
+          "fpr@fpr_0.001": {
+            "low": 0.0004923233289495273,
+            "high": 0.0017587534312463406
+          },
+          "recall_weighted@fpr_0.001": {
+            "low": 0.5437701667656498,
+            "high": 0.6805052653993491
+          },
+          "cost": {
+            "low": 420228796.81649995,
+            "high": 630675989.5047499
+          },
+          "pr_auc": {
+            "low": 0.25358485261661223,
+            "high": 0.47826266278809515
+          }
+        }
+      }
+    },
+    "xgb": {
+      "24": {
+        "n_blocks": 6,
+        "block_steps": 24,
+        "metrics": {
+          "recall@fpr_0.005": {
+            "low": 0.4933055565848959,
+            "high": 0.5589728905735003
+          },
+          "fpr@fpr_0.005": {
+            "low": 0.0027738228305759457,
+            "high": 0.006645696635996702
+          },
+          "recall_weighted@fpr_0.005": {
+            "low": 0.8189830412541556,
+            "high": 0.8883228414881835
+          },
+          "recall@fpr_0.001": {
+            "low": 0.34709193245778613,
+            "high": 0.4190093708165997
+          },
+          "fpr@fpr_0.001": {
+            "low": 0.0005471429882781013,
+            "high": 0.0013513374114151907
+          },
+          "recall_weighted@fpr_0.001": {
+            "low": 0.6075278631265901,
+            "high": 0.6882148865619857
+          },
+          "cost": {
+            "low": 319697024.65000015,
+            "high": 729112712.72
+          },
+          "pr_auc": {
+            "low": 0.48024692312267847,
+            "high": 0.6441889785785091
+          }
+        }
+      },
+      "6": {
+        "n_blocks": 21,
+        "block_steps": 6,
+        "metrics": {
+          "recall@fpr_0.005": {
+            "low": 0.4344059539190353,
+            "high": 0.6311203030026281
+          },
+          "fpr@fpr_0.005": {
+            "low": 0.0024372523156171093,
+            "high": 0.009558203675932938
+          },
+          "recall_weighted@fpr_0.005": {
+            "low": 0.8184600393245602,
+            "high": 0.8970169785905269
+          },
+          "recall@fpr_0.001": {
+            "low": 0.3041678050613026,
+            "high": 0.4859866836763947
+          },
+          "fpr@fpr_0.001": {
+            "low": 0.00034858010600580843,
+            "high": 0.0021125014389058064
+          },
+          "recall_weighted@fpr_0.001": {
+            "low": 0.5626129746636797,
+            "high": 0.7526381834580007
+          },
+          "cost": {
+            "low": 349888911.0402501,
+            "high": 704899099.7512499
+          },
+          "pr_auc": {
+            "low": 0.48170484874820635,
+            "high": 0.6467254600838906
+          }
+        }
+      }
+    }
+  },
+  "latency": {
+    "logreg": {
+      "calls": 10000,
+      "p50_ms": 0.003857,
+      "p95_ms": 0.004849,
+      "p99_ms": 0.011803400000000007,
+      "max_ms": 0.091403
+    },
+    "xgb": {
+      "calls": 10000,
+      "p50_ms": 0.003657,
+      "p95_ms": 0.004519,
+      "p99_ms": 0.006563200000000004,
+      "max_ms": 0.041258
+    }
+  },
+  "parity": {
+    "logreg": {
+      "max_abs_diff_onnx_vs_predict_proba": 2.384185791015625e-07,
+      "refit_vs_early_stopped_max_abs_diff": 0.0
+    },
+    "xgb": {
+      "max_abs_diff_onnx_vs_predict_proba": 1.7881393432617188e-07,
+      "refit_vs_early_stopped_max_abs_diff": 0.0
+    }
+  },
+  "provenance": {
+    "git_commit": "a77adc6cb97a69afd6b8a66b9ac121e83906ef06-dirty",
+    "features_yaml_sha256": "5de9692aabe09dd4062ee3b258321906cab5b2c322721bd7bbb84ac2df238527",
+    "csv_sha256": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b",
+    "config_yaml_sha256": "02bb6bb5162ff94057eb9f71aaa9349851a92547001f04eaf3bf795714419552"
+  },
+  "valid": {
+    "logreg": {
+      "pr_auc": 0.35953342224300905,
+      "operating_points": {
+        "fpr_0.005": {
+          "threshold": 0.93661,
+          "fpr": 0.00499110381958084,
+          "recall": 0.4,
+          "recall_weighted": 0.7565685884387359
+        },
+        "fpr_0.001": {
+          "threshold": 0.98191,
+          "fpr": 0.00099359937149063,
+          "recall": 0.17890625,
+          "recall_weighted": 0.6212643732754995
+        }
+      },
+      "thresholds": {
+        "t_review": 0.95301,
+        "t_block": 0.98974
+      },
+      "decision": {
+        "cost": 533098846.56,
+        "review_rate": 0.004988139820457475,
+        "block_rate": 0.0017618658998863558,
+        "block_fpr": 0.0004929485253907002,
+        "block_recall": 0.13046875,
+        "review_or_block_recall": 0.3546875,
+        "n_review": 654,
+        "n_blocked_legit": 64,
+        "approved_fraud_amount": 533095924.56
+      },
+      "cost_sensitivity": {
+        "review x0.5, block_fp x0.5": 533097385.56,
+        "review x0.5, block_fp x1": 533097865.56,
+        "review x0.5, block_fp x1.5": 533098345.56,
+        "review x1, block_fp x0.5": 533098366.56,
+        "review x1, block_fp x1": 533098846.56,
+        "review x1, block_fp x1.5": 533099326.56,
+        "review x1.5, block_fp x0.5": 533099347.56,
+        "review x1.5, block_fp x1": 533099827.56,
+        "review x1.5, block_fp x1.5": 533100307.56
+      },
+      "no_model_cost": 1903418012.73,
+      "label": "logreg C=10",
+      "params": {
+        "model": "logreg",
+        "C": 10.0
+      }
+    },
+    "xgb": {
+      "pr_auc": 0.5626333655852395,
+      "operating_points": {
+        "fpr_0.005": {
+          "threshold": 0.81436,
+          "fpr": 0.0046290947462470445,
+          "recall": 0.53203125,
+          "recall_weighted": 0.8614949944537502
+        },
+        "fpr_0.001": {
+          "threshold": 0.87141,
+          "fpr": 0.0009550877679444816,
+          "recall": 0.3890625,
+          "recall_weighted": 0.6581700474995484
+        }
+      },
+      "thresholds": {
+        "t_review": 0.83142,
+        "t_block": 0.9038
+      },
+      "decision": {
+        "cost": 530831837.98,
+        "review_rate": 0.004972885570242009,
+        "block_rate": 0.003394070672941248,
+        "block_fpr": 0.0004159253182984033,
+        "block_recall": 0.30546875,
+        "review_or_block_recall": 0.478125,
+        "n_review": 652,
+        "n_blocked_legit": 54,
+        "approved_fraud_amount": 530829071.98
+      },
+      "cost_sensitivity": {
+        "review x0.5, block_fp x0.5": 530830454.98,
+        "review x0.5, block_fp x1": 530830859.98,
+        "review x0.5, block_fp x1.5": 530831264.98,
+        "review x1, block_fp x0.5": 530831432.98,
+        "review x1, block_fp x1": 530831837.98,
+        "review x1, block_fp x1.5": 530832242.98,
+        "review x1.5, block_fp x0.5": 530832410.98,
+        "review x1.5, block_fp x1": 530832815.98,
+        "review x1.5, block_fp x1.5": 530833220.98
+      },
+      "no_model_cost": 1903418012.73,
+      "label": "xgb depth=6 spw=300",
+      "params": {
+        "model": "xgb",
+        "max_depth": 6,
+        "scale_pos_weight": 300,
+        "best_iteration": 20
+      }
+    }
+  }
+}

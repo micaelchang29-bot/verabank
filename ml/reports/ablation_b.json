@@ -1,0 +1,121 @@
+{
+  "feature_order": [
+    "amount",
+    "log_amount",
+    "type_TRANSFER",
+    "type_CASH_OUT",
+    "type_PAYMENT",
+    "type_DEBIT",
+    "hour_sin",
+    "hour_cos",
+    "dst_in_count_24h",
+    "dst_in_sum_24h",
+    "dst_distinct_src_24h",
+    "dst_seen_before",
+    "dst_age_hours",
+    "src_out_count_1h",
+    "src_out_count_24h",
+    "src_out_sum_24h",
+    "is_new_beneficiary",
+    "src_balance_before",
+    "amount_to_balance"
+  ],
+  "hyperparameters_from": "conjunto A (mejor de cada familia en valid)",
+  "logreg": {
+    "pr_auc": 0.5925358702940021,
+    "operating_points": {
+      "fpr_0.005": {
+        "threshold": 0.98618,
+        "fpr": 0.004998806140290069,
+        "recall": 0.5234375,
+        "recall_weighted": 0.9402778599394682
+      },
+      "fpr_0.001": {
+        "threshold": 0.99954,
+        "fpr": 0.0009858970507814005,
+        "recall": 0.35703125,
+        "recall_weighted": 0.8692134517614696
+      }
+    },
+    "thresholds": {
+      "t_review": 0.99153,
+      "t_block": 0.9998
+    },
+    "decision": {
+      "cost": 136167916.29000002,
+      "review_rate": 0.004972885570242009,
+      "block_rate": 0.0036686471768196415,
+      "block_fpr": 0.00046984156326301113,
+      "block_recall": 0.328125,
+      "review_or_block_recall": 0.48359375,
+      "n_review": 652,
+      "n_blocked_legit": 61,
+      "approved_fraud_amount": 136165045.29000002
+    },
+    "cost_sensitivity": {
+      "review x0.5, block_fp x0.5": 136166480.79000002,
+      "review x0.5, block_fp x1": 136166938.29000002,
+      "review x0.5, block_fp x1.5": 136167395.79000002,
+      "review x1, block_fp x0.5": 136167458.79000002,
+      "review x1, block_fp x1": 136167916.29000002,
+      "review x1, block_fp x1.5": 136168373.79000002,
+      "review x1.5, block_fp x0.5": 136168436.79000002,
+      "review x1.5, block_fp x1": 136168894.29000002,
+      "review x1.5, block_fp x1.5": 136169351.79000002
+    },
+    "no_model_cost": 1903418012.73
+  },
+  "xgb": {
+    "pr_auc": 0.9910773993569264,
+    "operating_points": {
+      "fpr_0.005": {
+        "threshold": 0.0196,
+        "fpr": 0.004998806140290069,
+        "recall": 1.0,
+        "recall_weighted": 1.0
+      },
+      "fpr_0.001": {
+        "threshold": 0.947,
+        "fpr": 0.00099359937149063,
+        "recall": 0.97421875,
+        "recall_weighted": 0.9982803205769262
+      }
+    },
+    "thresholds": {
+      "t_review": 0.88927,
+      "t_block": 0.96971
+    },
+    "decision": {
+      "cost": 1560.0,
+      "review_rate": 0.0015254250215466284,
+      "block_rate": 0.009625431885959225,
+      "block_fpr": 0.0004929485253907002,
+      "block_recall": 0.9359375,
+      "review_or_block_recall": 0.9984375,
+      "n_review": 200,
+      "n_blocked_legit": 64,
+      "approved_fraud_amount": 0.0
+    },
+    "cost_sensitivity": {
+      "review x0.5, block_fp x0.5": 780.0,
+      "review x0.5, block_fp x1": 1260.0,
+      "review x0.5, block_fp x1.5": 1740.0,
+      "review x1, block_fp x0.5": 1080.0,
+      "review x1, block_fp x1": 1560.0,
+      "review x1, block_fp x1.5": 2040.0,
+      "review x1.5, block_fp x0.5": 1380.0,
+      "review x1.5, block_fp x1": 1860.0,
+      "review x1.5, block_fp x1.5": 2340.0
+    },
+    "no_model_cost": 1903418012.73,
+    "best_iteration": 99,
+    "top_gain_importance": {
+      "amount_to_balance": 0.8203272819519043,
+      "src_balance_before": 0.10046707093715668,
+      "type_PAYMENT": 0.03145136311650276,
+      "amount": 0.012537729926407337,
+      "type_CASH_OUT": 0.006349943578243256
+    }
+  },
+  "artifact_suspected": true
+}
