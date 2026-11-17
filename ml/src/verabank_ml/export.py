@@ -1,4 +1,8 @@
-"""ml-export: ONNX del campeón y del retador, golden.jsonl, thresholds.json (model_sha256) y manifest.json."""
+"""ml-export: ONNX del campeón y del retador, golden.jsonl, golden_challenger.jsonl, thresholds.json y manifest.json.
+
+El retador solo puntúa en sombra: no tiene umbrales ni decisión; `golden_challenger.jsonl` guarda su score
+para los mismos casos del golden.
+"""
 
 import hashlib
 import json
@@ -27,6 +31,8 @@ ARTIFACTS = REPO_ROOT / "ml" / "artifacts"
 REPORTS = REPO_ROOT / "ml" / "reports"
 THRESHOLDS_PATH = ARTIFACTS / "thresholds.json"
 GOLDEN_PATH = ARTIFACTS / "golden.jsonl"
+CHALLENGER_ONNX = "challenger/model.onnx"
+GOLDEN_CHALLENGER_PATH = ARTIFACTS / "golden_challenger.jsonl"
 MANIFEST_PATH = ARTIFACTS / "manifest.json"
 GOLDEN_REPORT_PATH = REPORTS / "golden_selection.json"
 HISTORY_PARTITIONS = (
@@ -65,6 +71,29 @@ def load_alias(client, cfg: dict, alias: str):
     raise RuntimeError(f"ningún modelo registrado tiene el alias {alias}: ejecuta make ml-train")
 
 
+def io_signature(payload: bytes) -> dict:
+    """Entradas y salidas (nombre, tipo, forma) de un ONNX, tal como las ve ONNX Runtime."""
+    session = ort.InferenceSession(payload, providers=["CPUExecutionProvider"])
+    return {
+        "inputs": [(i.name, i.type, i.shape) for i in session.get_inputs()],
+        "outputs": [o.name for o in session.get_outputs()],
+    }
+
+
+def check_challenger_contract(client, thresholds: dict, challenger, champion_onnx, challenger_onnx):
+    """El retador usa el mismo conjunto y orden de features y las mismas reglas de entrada y salida."""
+    version = client.get_model_version_by_alias(challenger[1], "challenger")
+    feature_set = client.get_run(version.run_id).data.tags.get("feature_set")
+    assert feature_set == thresholds["feature_set"], (
+        f"el challenger se entrenó con el conjunto {feature_set!r}, no {thresholds['feature_set']!r}"
+    )
+    assert modeling.feature_order(feature_set) == thresholds["feature_order"], "feature_order distinto"
+    champion_io, challenger_io = io_signature(champion_onnx), io_signature(challenger_onnx)
+    assert challenger_io == champion_io, f"entradas o salidas distintas: {challenger_io} != {champion_io}"
+    (_, _, shape), = challenger_io["inputs"]
+    assert shape[1] == len(thresholds["feature_order"]), "n_features distinto de feature_order"
+
+
 def to_onnx_bytes(family: str, model, n_features: int) -> bytes:
     proto = (
         xgboost_to_onnx(model, n_features)
@@ -94,11 +123,13 @@ def export_command(argv: list[str]) -> int:
 
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     onnx_files = {}
+    (ARTIFACTS / "shadow.onnx").unlink(missing_ok=True)  # el retador vive ahora en challenger/
     for filename, (family, name, version, model) in (
         ("model.onnx", champion),
-        ("shadow.onnx", challenger),
+        (CHALLENGER_ONNX, challenger),
     ):
         payload = to_onnx_bytes(family, model, len(cols))
+        (ARTIFACTS / filename).parent.mkdir(parents=True, exist_ok=True)
         (ARTIFACTS / filename).write_bytes(payload)
         onnx_files[filename] = {
             "sha256": sha256_bytes(payload),
@@ -108,6 +139,10 @@ def export_command(argv: list[str]) -> int:
             "family": family,
         }
         print(f"{filename}: {name} v{version} ({len(payload):,} bytes)")
+    check_challenger_contract(
+        client, thresholds, challenger,
+        (ARTIFACTS / "model.onnx").read_bytes(), (ARTIFACTS / CHALLENGER_ONNX).read_bytes(),
+    )  # fmt: skip
 
     # --- golden: solo train, gap y valid (nunca test)
     meta = ["row_id", "step", "type", "is_fraud", "partition", "src_id", "dst_id"]
@@ -160,6 +195,17 @@ def export_command(argv: list[str]) -> int:
         )  # fmt: skip
     GOLDEN_PATH.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in cases))
 
+    # --- golden del retador: el score float64 del modelo original sobre las mismas features float32
+    challenger_scores = modeling.positive_proba(
+        challenger[3], modeling.matrix(frame.iloc[selected["pos"].to_numpy()], cols)
+    )
+    GOLDEN_CHALLENGER_PATH.write_text(
+        "".join(
+            json.dumps({"case_id": c["case_id"], "score": float(v)}) + "\n"
+            for c, v in zip(cases, challenger_scores, strict=True)
+        )
+    )
+
     # --- comprobaciones del exportador (las pruebas de CI las repiten sin datos)
     onnx_rows = np.array([[c["features"][k] for k in cols] for c in cases], dtype=np.float32)
     golden_scores = np.array([c["score"] for c in cases])
@@ -167,6 +213,12 @@ def export_command(argv: list[str]) -> int:
     print(f"golden: {len(cases)} casos; diferencia máxima ONNX frente a score = {parity:.3e}")
     if parity >= 1e-5:
         raise RuntimeError(f"paridad ONNX {parity:.3e} >= 1e-5")
+    challenger_parity = onnx_parity(
+        (ARTIFACTS / CHALLENGER_ONNX).read_bytes(), onnx_rows, challenger_scores
+    )
+    print(f"golden_challenger: diferencia máxima ONNX frente a score = {challenger_parity:.3e}")
+    if challenger_parity >= 1e-5:
+        raise RuntimeError(f"paridad ONNX del challenger {challenger_parity:.3e} >= 1e-5")
 
     # --- thresholds.json, manifest.json e informe de selección del golden
     model_sha = onnx_files["model.onnx"]["sha256"]
@@ -215,10 +267,14 @@ def export_command(argv: list[str]) -> int:
             },
             "thresholds.json": {"sha256": sha256_bytes(thresholds_bytes)},
             "golden.jsonl": {"sha256": sha256_bytes(GOLDEN_PATH.read_bytes()), "cases": len(cases)},
+            "golden_challenger.jsonl": {
+                "sha256": sha256_bytes(GOLDEN_CHALLENGER_PATH.read_bytes()),
+                "cases": len(cases),
+            },
         },
         "models": {
             "champion": {k: onnx_files["model.onnx"][k] for k in MODEL_KEYS},
-            "challenger": {k: onnx_files["shadow.onnx"][k] for k in MODEL_KEYS},
+            "challenger": {k: onnx_files[CHALLENGER_ONNX][k] for k in MODEL_KEYS},
         },
         "git_commit": thresholds["provenance"]["git_commit"],
         "onnxruntime_version": ort.__version__,
@@ -233,7 +289,11 @@ def export_command(argv: list[str]) -> int:
             "ml/config.yaml": sha256_bytes(CONFIG_PATH.read_bytes()),
             "paysim.csv": modeling.DATA_HASH_PATH.read_text().strip(),
         },
-        "golden": {"strata": strata, "onnx_vs_score_max_abs_diff": parity},
+        "golden": {
+            "strata": strata,
+            "onnx_vs_score_max_abs_diff": parity,
+            "challenger_onnx_vs_score_max_abs_diff": challenger_parity,
+        },
     }
     tracking.dump_json(MANIFEST_PATH, manifest)
     print(f"estratos: {strata}")

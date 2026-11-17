@@ -159,13 +159,15 @@ def test_accounts_are_opaque_local_aliases(cases):
 
 
 def test_no_original_account_names_or_prohibited_columns(cfg):
-    for name in ("golden.jsonl", "thresholds.json", "manifest.json", "README.md"):
-        text = (ARTIFACTS / name).read_text()
+    texts = sorted(p for p in ARTIFACTS.rglob("*") if p.suffix in (".json", ".jsonl", ".md"))
+    assert {p.name for p in texts} >= {"golden_challenger.jsonl", "golden.jsonl", "manifest.json"}
+    for path in texts:
+        name = str(path.relative_to(ARTIFACTS))
+        text = path.read_text()
         assert not ORIGINAL_ACCOUNT.search(text), f"nombre de cuenta original en {name}"
-    for name in ("golden.jsonl", "thresholds.json", "manifest.json"):
-        text = (ARTIFACTS / name).read_text()
-        for column in PROHIBITED:
-            assert column not in text, f"{column} en {name}"
+        if path.suffix != ".md":
+            for column in PROHIBITED:
+                assert column not in text, f"{column} en {name}"
     report = (REPO_ROOT / "ml" / "reports" / "golden_selection.json").read_text()
     assert not ORIGINAL_ACCOUNT.search(report)
 
@@ -188,7 +190,7 @@ def test_manifest_records_the_real_onnx_opsets_ir_and_runtime_version(manifest):
     import onnx
 
     assert manifest["onnxruntime_version"] == ort.__version__
-    for name in ("model.onnx", "shadow.onnx"):
+    for name in ("model.onnx", "challenger/model.onnx"):
         model = onnx.load(str(ARTIFACTS / name))
         entry = manifest["artifacts"][name]
         assert entry["ir_version"] == model.ir_version, name
@@ -225,7 +227,7 @@ def test_thresholds_contract_is_complete(thresholds):
 
 
 def test_onnx_graphs_are_deterministic_and_have_the_declared_io():
-    for name, family in (("model.onnx", "xgb"), ("shadow.onnx", "logreg")):
+    for name, family in (("model.onnx", "xgb"), ("challenger/model.onnx", "logreg")):
         session = ort.InferenceSession(str(ARTIFACTS / name), providers=["CPUExecutionProvider"])
         (input_,) = session.get_inputs()
         assert input_.name == INPUT_NAME and input_.shape[1] == 17
@@ -235,10 +237,43 @@ def test_onnx_graphs_are_deterministic_and_have_the_declared_io():
         assert onnx.load(str(ARTIFACTS / name)).graph.name == f"verabank_fraud_{family}"
 
 
-def test_shadow_model_scores_the_golden_features(cases, thresholds):
+def challenger_cases() -> list[dict]:
+    lines = (ARTIFACTS / "golden_challenger.jsonl").read_text().splitlines()
+    return [json.loads(line) for line in lines]
+
+
+def test_challenger_matches_golden_challenger_scores(cases, thresholds):
+    """Paridad del challenger: ONNX Runtime reproduce el score float64 de golden_challenger.jsonl."""
+    scores = challenger_cases()
+    assert [c["case_id"] for c in scores] == [c["case_id"] for c in cases]
+    assert all(set(c) == {"case_id", "score"} for c in scores)  # sin features ni decisión
     X = np.array(
         [[c["features"][n] for n in thresholds["feature_order"]] for c in cases], dtype=np.float32
     )
-    probabilities = predict_positive_proba((ARTIFACTS / "shadow.onnx").read_bytes(), X)
-    assert probabilities.shape == (1000,)
-    assert ((probabilities >= 0) & (probabilities <= 1)).all()
+    actual = predict_positive_proba((ARTIFACTS / "challenger" / "model.onnx").read_bytes(), X)
+    expected = np.array([c["score"] for c in scores])
+    assert np.abs(actual - expected).max() < SCORE_TOLERANCE
+    assert ((actual >= 0) & (actual <= 1)).all()
+
+
+def test_challenger_has_the_same_io_contract_as_the_champion(thresholds):
+    def signature(path):
+        session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        return (
+            [(i.name, i.type, i.shape) for i in session.get_inputs()],
+            [o.name for o in session.get_outputs()],
+        )
+
+    champion = signature(ARTIFACTS / "model.onnx")
+    challenger = signature(ARTIFACTS / "challenger" / "model.onnx")
+    assert challenger == champion
+    assert champion[0][0][2][1] == len(thresholds["feature_order"])  # mismo feature_order: n y nombre
+
+
+def test_challenger_has_no_thresholds_and_is_listed_in_the_manifest(manifest):
+    assert not (ARTIFACTS / "challenger" / "thresholds.json").exists()
+    entry = manifest["artifacts"]["golden_challenger.jsonl"]
+    assert entry["cases"] == 1000
+    assert manifest["artifacts"]["challenger/model.onnx"]["sha256"]
+    challenger = manifest["models"]["challenger"]
+    assert challenger["registered_model"] and challenger["version"]

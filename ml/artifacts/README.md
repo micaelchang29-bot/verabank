@@ -6,7 +6,8 @@ Todo lo de esta carpeta está versionado y es determinista: dos ejecuciones segu
 | Archivo | Qué es |
 |---|---|
 | `model.onnx` | Modelo servido (alias `champion` de MLflow: XGBoost). Entrada `features`, float32 `[None, 17]` en el orden de `thresholds.json:feature_order`. Salidas `label` y `probabilities` `[None, 2]`: la probabilidad de la clase positiva (fraude) es la **columna 1** de `probabilities`. |
-| `shadow.onnx` | Modelo en sombra (alias `challenger`: regresión logística). Mismo contrato de entrada y salida. |
+| `challenger/model.onnx` | Modelo en sombra (alias `challenger`: regresión logística). Mismo contrato de entrada y salida y mismo `feature_order` que `model.onnx`. No tiene umbrales: solo puntúa en sombra. |
+| `golden_challenger.jsonl` | Una línea `{"case_id", "score"}` por cada caso de `golden.jsonl` (mismos `case_id`, mismo orden): el score `float64` del challenger sobre las mismas features, sin features ni decisión. ONNX Runtime debe reproducirlo con diferencia < 1e-5. |
 | `thresholds.json` | `model_version`, `model_sha256`, `feature_order`, `t_review`, `t_block`, `rounding_decimals` (5), regla de decisión y las métricas de `valid` que respaldan los umbrales. |
 | `golden.jsonl` | 1.000 casos para la paridad T-13 (ver abajo). |
 | `manifest.json` | SHA-256 de cada artefacto, modelos exportados, contrato de entrada y salida del ONNX, y hashes de entrada (`features.yaml`, `config.yaml`, CSV). |
@@ -60,7 +61,7 @@ modo que ningún dato de `test` interviene. Composición y sesgo de la muestra: 
 ```bash
 make ml-features   # si cambió el contrato de features
 make ml-train      # champion, challenger y thresholds.json (no incluye model_sha256)
-make ml-export     # model.onnx, shadow.onnx, golden.jsonl, model_sha256 y manifest.json
+make ml-export     # model.onnx, challenger/model.onnx, golden.jsonl, golden_challenger.jsonl, model_sha256 y manifest.json
 make ml-test       # paridad T-13 sobre estos archivos (corre en la CI, sin datos)
 ```
 
@@ -84,6 +85,6 @@ Atribución requerida por la ficha del dataset:
 > The 28th European Modeling and Simulation Symposium (EMSS), Larnaca, Chipre, 2016.
 
 Cambios: se conservan tipo, monto y sentido de las transferencias, y solo los pasos temporales se convierten en
-`occurred_at`; los nombres de cuenta se sustituyen por alias. `golden.jsonl`, `model.onnx` y `shadow.onnx` se tratan
+`occurred_at`; los nombres de cuenta se sustituyen por alias. `golden.jsonl`, `golden_challenger.jsonl`, `model.onnx` y `challenger/model.onnx` se tratan
 como material adaptado de PaySim y se distribuyen bajo CC BY-SA 4.0, con la atribución de arriba (la de la ficha del
 dataset). El código del repositorio mantiene su propia licencia. Véase `docs/adr/ADR-11.md`.

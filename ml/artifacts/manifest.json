@@ -10,7 +10,7 @@
       ],
       "ir_version": 8
     },
-    "shadow.onnx": {
+    "challenger/model.onnx": {
       "sha256": "0e2711161376b69d976e6e99734e23524a206f6c5ceda091ca954bf5920ed102",
       "opset_imports": [
         {
@@ -33,6 +33,10 @@
     },
     "golden.jsonl": {
       "sha256": "9a264bb6cb343d2bdf06d73d25f0ef5d693275d6255eacca5912ef3cd2a9d355",
+      "cases": 1000
+    },
+    "golden_challenger.jsonl": {
+      "sha256": "58a1d00a563c1697dd23bbebc77442dad3b03324297c7f75bec47bf00a7b295e",
       "cases": 1000
     }
   },
@@ -68,6 +72,7 @@
       "fraud": 250,
       "random": 400
     },
-    "onnx_vs_score_max_abs_diff": 1.7881393432617188e-07
+    "onnx_vs_score_max_abs_diff": 1.7881393432617188e-07,
+    "challenger_onnx_vs_score_max_abs_diff": 2.384185791015625e-07
   }
 }
