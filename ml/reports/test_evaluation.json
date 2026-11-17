@@ -1,0 +1,272 @@
+{
+  "frozen_thresholds": {
+    "t_review": 0.83142,
+    "t_block": 0.9038,
+    "operating_points": {
+      "fpr_0.005": 0.81436,
+      "fpr_0.001": 0.87141
+    }
+  },
+  "overall": {
+    "pr_auc": 0.6028514365700434,
+    "operating_points": {
+      "fpr_0.005": {
+        "threshold": 0.81436,
+        "fpr": 0.008397764927555064,
+        "recall": 0.5225563909774437,
+        "recall_weighted": 0.8814542667294331
+      },
+      "fpr_0.001": {
+        "threshold": 0.87141,
+        "fpr": 0.0006984601390422975,
+        "recall": 0.3963480128893663,
+        "recall_weighted": 0.726060346255273
+      }
+    },
+    "thresholds": {
+      "t_review": 0.83142,
+      "t_block": 0.9038
+    },
+    "decision": {
+      "cost": 713132559.48,
+      "review_rate": 0.010008800704056324,
+      "block_rate": 0.004552364189135131,
+      "block_fpr": 0.00015431096095120525,
+      "block_recall": 0.2953813104189044,
+      "review_or_block_recall": 0.4817400644468314,
+      "n_review": 1251,
+      "n_blocked_legit": 19,
+      "approved_fraud_amount": 713128521.48
+    },
+    "cost_sensitivity": {
+      "review x0.5, block_fp x0.5": 713130540.48,
+      "review x0.5, block_fp x1": 713130682.98,
+      "review x0.5, block_fp x1.5": 713130825.48,
+      "review x1, block_fp x0.5": 713132416.98,
+      "review x1, block_fp x1": 713132559.48,
+      "review x1, block_fp x1.5": 713132701.98,
+      "review x1.5, block_fp x0.5": 713134293.48,
+      "review x1.5, block_fp x1": 713134435.98,
+      "review x1.5, block_fp x1.5": 713134578.48
+    },
+    "no_model_cost": 2979091949.7200003,
+    "n_rows": 124990,
+    "n_fraud": 1862
+  },
+  "unseen_destinations": {
+    "pr_auc": 0.6891272186976205,
+    "operating_points": {
+      "fpr_0.005": {
+        "threshold": 0.81436,
+        "fpr": 0.00511947734665587,
+        "recall": 0.5650842266462481,
+        "recall_weighted": 0.8753662013823835
+      },
+      "fpr_0.001": {
+        "threshold": 0.87141,
+        "fpr": 0.0011391866481834777,
+        "recall": 0.42496171516079634,
+        "recall_weighted": 0.6692684038601355
+      }
+    },
+    "thresholds": {
+      "t_review": 0.83142,
+      "t_block": 0.9038
+    },
+    "decision": {
+      "cost": 630340492.9200001,
+      "review_rate": 0.007092294208858626,
+      "block_rate": 0.005366412728375919,
+      "block_fpr": 0.0002607776664516395,
+      "block_recall": 0.2901990811638591,
+      "review_or_block_recall": 0.5068912710566615,
+      "n_review": 526,
+      "n_blocked_legit": 19,
+      "approved_fraud_amount": 630338629.9200001
+    },
+    "cost_sensitivity": {
+      "review x0.5, block_fp x0.5": 630339561.4200001,
+      "review x0.5, block_fp x1": 630339703.9200001,
+      "review x0.5, block_fp x1.5": 630339846.4200001,
+      "review x1, block_fp x0.5": 630340350.4200001,
+      "review x1, block_fp x1": 630340492.9200001,
+      "review x1, block_fp x1.5": 630340635.4200001,
+      "review x1.5, block_fp x0.5": 630341139.4200001,
+      "review x1.5, block_fp x1": 630341281.9200001,
+      "review x1.5, block_fp x1.5": 630341424.4200001
+    },
+    "no_model_cost": 2169305205.32,
+    "n_rows": 74165,
+    "n_fraud": 1306,
+    "share_of_rows": 0.5933674693975518
+  },
+  "intervals": {
+    "24": {
+      "n_blocks": 8,
+      "block_steps": 24,
+      "metrics": {
+        "recall@fpr_0.005": {
+          "low": 0.49904186714782145,
+          "high": 0.5466584699453552
+        },
+        "fpr@fpr_0.005": {
+          "low": 0.0035788660717979838,
+          "high": 0.022590192319384098
+        },
+        "recall_weighted@fpr_0.005": {
+          "low": 0.8533880876077952,
+          "high": 0.9000489941314012
+        },
+        "recall@fpr_0.001": {
+          "low": 0.38107491971915314,
+          "high": 0.414729358436319
+        },
+        "fpr@fpr_0.001": {
+          "low": 0.00043306418043073447,
+          "high": 0.001240043590746697
+        },
+        "recall_weighted@fpr_0.001": {
+          "low": 0.6777631798111464,
+          "high": 0.7650853756298879
+        },
+        "cost": {
+          "low": 488354899.42449987,
+          "high": 898966067.331
+        },
+        "pr_auc": {
+          "low": 0.5576733430551576,
+          "high": 0.686944430036001
+        }
+      }
+    },
+    "6": {
+      "n_blocks": 29,
+      "block_steps": 6,
+      "metrics": {
+        "recall@fpr_0.005": {
+          "low": 0.43724500533734445,
+          "high": 0.6101378828085777
+        },
+        "fpr@fpr_0.005": {
+          "low": 0.0026765748680869935,
+          "high": 0.02179479024969696
+        },
+        "recall_weighted@fpr_0.005": {
+          "low": 0.8458183393967936,
+          "high": 0.9100000781219101
+        },
+        "recall@fpr_0.001": {
+          "low": 0.3223961196628184,
+          "high": 0.4742316333653258
+        },
+        "fpr@fpr_0.001": {
+          "low": 0.00031093266419333416,
+          "high": 0.0015598878528402362
+        },
+        "recall_weighted@fpr_0.001": {
+          "low": 0.6533071639679692,
+          "high": 0.7914353511938668
+        },
+        "cost": {
+          "low": 516907354.739,
+          "high": 941182227.9180001
+        },
+        "pr_auc": {
+          "low": 0.5135609251128068,
+          "high": 0.7023395468272592
+        }
+      }
+    }
+  },
+  "fpr_by_type": [
+    {
+      "group": "CASH_OUT",
+      "n_legit": 51639,
+      "n_fraud": 931,
+      "fpr_block": 0.0,
+      "fpr_review_or_block": 0.014233428222854819,
+      "recall_review_or_block": 0.4715359828141783
+    },
+    {
+      "group": "DEBIT",
+      "n_legit": 1328,
+      "n_fraud": 0,
+      "fpr_block": 0.0,
+      "fpr_review_or_block": 0.0,
+      "recall_review_or_block": null
+    },
+    {
+      "group": "PAYMENT",
+      "n_legit": 55537,
+      "n_fraud": 0,
+      "fpr_block": 0.0,
+      "fpr_review_or_block": 0.0,
+      "recall_review_or_block": null
+    },
+    {
+      "group": "TRANSFER",
+      "n_legit": 14624,
+      "n_fraud": 931,
+      "fpr_block": 0.001299234135667396,
+      "fpr_review_or_block": 0.012855579868708972,
+      "recall_review_or_block": 0.49194414607948445
+    }
+  ],
+  "fpr_by_amount_band": [
+    {
+      "group": "[0, 1000)",
+      "n_legit": 4118,
+      "n_fraud": 17,
+      "fpr_block": 0.0,
+      "fpr_review_or_block": 0.0009713453132588635,
+      "recall_review_or_block": 0.17647058823529413
+    },
+    {
+      "group": "[1000, 10000)",
+      "n_legit": 31109,
+      "n_fraud": 36,
+      "fpr_block": 6.42900768266418e-05,
+      "fpr_review_or_block": 0.000996496190812948,
+      "recall_review_or_block": 0.2777777777777778
+    },
+    {
+      "group": "[10000, 100000)",
+      "n_legit": 42575,
+      "n_fraud": 334,
+      "fpr_block": 9.395184967704051e-05,
+      "fpr_review_or_block": 0.007022900763358778,
+      "recall_review_or_block": 0.30538922155688625
+    },
+    {
+      "group": "[100000, 1e+06)",
+      "n_legit": 43104,
+      "n_fraud": 876,
+      "fpr_block": 0.00027839643652561246,
+      "fpr_review_or_block": 0.013409428359317,
+      "recall_review_or_block": 0.3515981735159817
+    },
+    {
+      "group": "[1e+06, inf)",
+      "n_legit": 2222,
+      "n_fraud": 599,
+      "fpr_block": 0.00045004500450045,
+      "fpr_review_or_block": 0.0049504950495049506,
+      "recall_review_or_block": 0.7913188647746243
+    }
+  ],
+  "vs_no_model": {
+    "no_model_cost": 2979091949.7200003,
+    "model_cost": 713132559.48,
+    "cost_reduction": 0.7606208295964056,
+    "no_model_recall": 0.0,
+    "model_review_or_block_recall": 0.4817400644468314
+  },
+  "model_version": "fraud-xgb/4",
+  "test_reevaluated": false,
+  "provenance": {
+    "git_commit": "0197249fba275462e5c3879855dec63b2b27d02f",
+    "features_yaml_sha256": "5de9692aabe09dd4062ee3b258321906cab5b2c322721bd7bbb84ac2df238527",
+    "csv_sha256": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b",
+    "config_yaml_sha256": "02bb6bb5162ff94057eb9f71aaa9349851a92547001f04eaf3bf795714419552"
+  }
+}

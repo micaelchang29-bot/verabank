@@ -3,14 +3,16 @@
 Generado por `make ml-report`. Hiperparámetros, umbrales y selección usan solo `valid`; `test` se evalúa una vez con todo congelado.
 
 ## Modelo servido
-**Decisión pendiente.** criterio(s) indeterminado(s): pr_auc_intervals_do_not_overlap. No hay `thresholds.json` ni alias `champion`.
+**xgb** (`fraud-xgb/4`), conjunto A. Motivo: el boosting cumple los cuatro criterios.
+
+> **Advertencia:** valid tiene 6 bloques de 24 pasos (menos de 10): los intervalos por bootstrap de bloques son poco fiables.
 
 | Criterio | Regla | Valor | Resultado |
 |---|---|---|---|
 | pr_auc_gain | PR-AUC(xgb) - PR-AUC(logreg) >= 0.02 | 0.2031 | PASS |
-| pr_auc_intervals_do_not_overlap | low(xgb) > high(logreg) con bloques de 24 pasos y al menos 10 bloques en valid | {"n_blocks_valid": 6, "block_steps": 24, "logreg_pr_auc_interval": [0.24878556714140873, 0.47883977767545627], "xgb_pr_auc_interval": [0.48024692312267847, 0.6441889785785091]} | INDETERMINADO |
+| pr_auc_intervals_do_not_overlap | low(xgb) > high(logreg) con bloques de 24 y de 6 pasos; si difieren, cuenta como no cumplido | {"block_steps_24": {"n_blocks_valid": 6, "logreg_pr_auc_interval": [0.24878556714140873, 0.47883977767545627], "xgb_pr_auc_interval": [0.48024692312267847, 0.6441889785785091], "no_overlap": true}, "block_steps_6": {"n_blocks_valid": 21, "logreg_pr_auc_interval": [0.25358485261661223, 0.47826266278809515], "xgb_pr_auc_interval": [0.48170484874820635, 0.6467254600838906], "no_overlap": true}} | PASS |
 | cost_lower | costo(xgb) < costo(logreg) en valid, cada uno con sus umbrales | {"logreg": 533098846.56, "xgb": 530831837.98} | PASS |
-| inference_p95 | p95 de xgb en ONNX Runtime < 10 ms | 0.004519 | PASS |
+| inference_p95 | p95 de xgb en ONNX Runtime < 10 ms | 0.004028 | PASS |
 
 Intervalos de PR-AUC en `valid` con bloques de 24 pasos (6 bloques; el mínimo fiable es 10) y de 6 pasos (21 bloques):
 
@@ -19,7 +21,7 @@ Intervalos de PR-AUC en `valid` con bloques de 24 pasos (6 bloques; el mínimo f
 | logreg | [0.2488, 0.4788] | [0.2536, 0.4783] |
 | xgb | [0.4802, 0.6442] | [0.4817, 0.6467] |
 
-Latencia de inferencia (ONNX Runtime, un hilo, una fila por llamada, 10,000 llamadas): logreg p95 0.0048 ms; xgb p95 0.0045 ms.
+Latencia de inferencia (ONNX Runtime, un hilo, una fila por llamada, 10,000 llamadas): logreg p95 0.0042 ms; xgb p95 0.0040 ms.
 
 ## Métricas en valid (pasos 425–550)
 
@@ -94,7 +96,60 @@ Decisión: `score = round(p, 5)`; BLOCK si `score >= t_block`; si no, REVIEW si 
 
 ## Métricas en test (pasos 575–744, evaluado una vez)
 
-Aún no se ha ejecutado `make ml-eval-test`.
+Modelo: `fraud-xgb/4`, umbrales congelados de valid.
+
+| Métrica | Valor | Intervalo 95 % (bloques de 24) |
+|---|---|---|
+| PR-AUC | 0.6029 | [0.5577, 0.6869] |
+| Recall a FPR 0.5% (FPR real 0.840%) | 0.5226 | [0.4990, 0.5467] |
+| Recall ponderado por monto a FPR 0.5% | 0.8815 | [0.8534, 0.9000] |
+| Recall a FPR 0.1% (FPR real 0.070%) | 0.3963 | [0.3811, 0.4147] |
+| Recall ponderado por monto a FPR 0.1% | 0.7261 | [0.6778, 0.7651] |
+| Costo C | 713,132,559 | [488354899, 898966067] |
+| Costo sin modelo (todo aprobado) | 2,979,091,950 | – |
+| Tasa de revisión / de bloqueo | 1.001% / 0.455% | – |
+| FPR de bloqueo | 0.0154% | – |
+| Recall de bloqueo / de revisión-o-bloqueo | 0.2954 / 0.4817 | – |
+
+La partición test tiene 8 bloques de 24 pasos (menos de 10: los intervalos son poco fiables) y 29 de 6 pasos.
+
+### Destinos no vistos en train (59.3% de las filas de test; 1,306 fraudes)
+
+| Métrica | Valor | Intervalo |
+|---|---|---|
+| PR-AUC | 0.6891 | – |
+| Recall a FPR 0.5% (FPR real 0.512%) | 0.5651 | – |
+| Recall ponderado por monto a FPR 0.5% | 0.8754 | – |
+| Recall a FPR 0.1% (FPR real 0.114%) | 0.4250 | – |
+| Recall ponderado por monto a FPR 0.1% | 0.6693 | – |
+| Costo C | 630,340,493 | – |
+| Costo sin modelo (todo aprobado) | 2,169,305,205 | – |
+| Tasa de revisión / de bloqueo | 0.709% / 0.537% | – |
+| FPR de bloqueo | 0.0261% | – |
+| Recall de bloqueo / de revisión-o-bloqueo | 0.2902 / 0.5069 | – |
+
+### FPR por tipo
+
+| Tipo | Legítimas | Fraudes | FPR bloqueo | FPR revisión o bloqueo | Recall rev.+bloq. |
+|---|---|---|---|---|---|
+| CASH_OUT | 51639 | 931 | 0.000% | 1.423% | 47.2% |
+| DEBIT | 1328 | 0 | 0.000% | 0.000% | – |
+| PAYMENT | 55537 | 0 | 0.000% | 0.000% | – |
+| TRANSFER | 14624 | 931 | 0.130% | 1.286% | 49.2% |
+
+### FPR por tramo de monto
+
+| Tramo | Legítimas | Fraudes | FPR bloqueo | FPR revisión o bloqueo | Recall rev.+bloq. |
+|---|---|---|---|---|---|
+| [0, 1000) | 4118 | 17 | 0.000% | 0.097% | 17.6% |
+| [1000, 10000) | 31109 | 36 | 0.006% | 0.100% | 27.8% |
+| [10000, 100000) | 42575 | 334 | 0.009% | 0.702% | 30.5% |
+| [100000, 1e+06) | 43104 | 876 | 0.028% | 1.341% | 35.2% |
+| [1e+06, inf) | 2222 | 599 | 0.045% | 0.495% | 79.1% |
+
+### Frente a no tener modelo
+
+Todo aprobado cuesta 2,979,091,950 (recall 0). El modelo cuesta 713,132,559 (76.1% menos) y detecta el 48.2% de los fraudes en REVIEW o BLOCK.
 
 ## Explicabilidad
 
@@ -114,28 +169,6 @@ SHAP global del XGBoost (TreeExplainer, 20,000 filas de valid):
 | hour_sin | 0.1346 |
 | dst_age_hours | 0.0507 |
 | dst_in_sum_24h | 0.0290 |
-
-Regresión logística: coeficiente por valor estandarizado (log-odds por desviación típica):
-
-| Feature | Coeficiente |
-|---|---|
-| type_PAYMENT | -3.4969 |
-| type_CASH_OUT | +2.5202 |
-| type_TRANSFER | +1.6800 |
-| dst_seen_before | -0.7542 |
-| hour_cos | +0.7330 |
-| hour_sin | +0.6161 |
-| amount | +0.5587 |
-| type_DEBIT | -0.4565 |
-| dst_in_sum_24h | -0.2987 |
-| dst_age_hours | -0.2587 |
-| src_out_sum_24h | -0.0878 |
-| src_out_count_1h | -0.0266 |
-| dst_in_count_24h | -0.0224 |
-| dst_distinct_src_24h | -0.0224 |
-| src_out_count_24h | +0.0076 |
-| log_amount | -0.0044 |
-| is_new_beneficiary | +0.0000 |
 
 ## Ablación: conjunto B (con saldo), solo valid
 
