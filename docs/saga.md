@@ -1,6 +1,6 @@
 # Saga de transferencias
 
-Especificación del orquestador de `transfer-service`. Desarrolla §2.3 y ADR-01 de `docs/diseno.md` y es la fuente de verdad de estados, transiciones, temporizadores, mensajería y métricas de la saga. No cambia el DDL ni los esquemas de eventos.
+Especificación del orquestador de `transfer-service`. Desarrolla §2.3 y ADR-01 de `docs/diseno.md` y es la fuente de verdad de estados, transiciones, temporizadores, mensajería y métricas de la saga. No cambia el DDL; el único cambio de un esquema de eventos es el de `TransferScored` en fallback (§11).
 
 ## 1. Principios
 
@@ -145,3 +145,24 @@ Micrometer, visibles en `/actuator/metrics/<nombre>`.
 ## 10. Pendientes
 
 - **429 `rate-limited`.** El límite por canal del contrato (`429`, `Retry-After`) no está implementado: ninguna ruta responde 429 todavía. Lo cubrirá un filtro por `client_id` en una fase posterior; no afecta a la saga.
+
+## 11. Scoring remoto y fallback
+
+El scorer sigue invocándose entre `tx1` y `tx2`, fuera de transacción, y es idempotente por `transfer_id` (§1.2, §7). Con
+`verabank.scoring.mode=remote` (por defecto) es `RemoteScorer`; con `stub`, `StubScorer` (lo usa `make up-core` y las pruebas de
+las fases 1 y 2). La decisión se aplica en `tx2` como en S2 a S5: `BLOCK` libera la retención (`TransferRejected` con
+`RISK_BLOCK`), `REVIEW` pasa a `IN_REVIEW` (`TransferHeld`) y `APPROVE` completa o instruye al rail.
+
+| Elemento | Valor |
+|---|---|
+| Llamada | `POST /internal/v1/scores` de risk-service con `java.net.http.HttpClient`; conexión 50 ms, total 120 ms; `X-Correlation-Id` |
+| Circuit breaker (Resilience4j 2.4.0) | Ventana de 20 llamadas, mínimo 10, abre con 50 % de fallos, 10 s abierto, 5 llamadas en semiabierto |
+| Fallo del circuito | Excepción, tiempo agotado, 5xx y respuesta malformada. Un 4xx es un defecto nuestro: fallback, ERROR en el log y no cuenta |
+| Fallback (`verabank.scoring.fallback-limit`, 500,00) | Monto ≤ límite: `APPROVE`; mayor: `REVIEW`. `decision_source = FALLBACK`. Con el circuito abierto no se intenta la llamada |
+| D7 | En fallback `fraud_score` queda `NULL`, `model_version = 'fallback-v1'` y `TransferScored` se emite sin `score` |
+| Métricas | `scoring.remote.duration{outcome}`, `scoring.fallback.total{reason=timeout\|open\|error}`, `scoring.circuit.state` (0 cerrado, 1 semiabierto, 2 abierto) |
+
+**Cambio de contrato pendiente de ADR-12.** `contracts/events/TransferScored.v1.schema.json`: `score` deja de ser obligatorio
+cuando `decision_source` es `FALLBACK` (esquema condicional `if/then/else`); con `MODEL` sigue siéndolo. Es el único cambio de
+contrato de esta integración y queda anotado en el propio esquema (`$comment`).
+
