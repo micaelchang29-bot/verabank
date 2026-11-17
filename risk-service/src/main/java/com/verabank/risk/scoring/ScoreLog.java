@@ -63,6 +63,28 @@ class ScoreLog {
                 config.scoring().queryTimeout(), "bitácora (escritura)");
     }
 
+    /**
+     * Ejecuta el INSERT real dentro de una transacción que siempre se revierte: calienta la sentencia preparada y la
+     * ruta de escritura sin dejar ninguna fila en la bitácora.
+     */
+    Uni<Void> insertAndRollBack(ScoreInput in, Map<String, Double> features, DecisionPolicy.Scored scored,
+            String modelVersion) {
+        Tuple params = Tuple.tuple()
+                .addValue(in.transferId()).addValue(in.sourceRef()).addValue(in.destRef())
+                .addValue(Numeric.create(in.amount())).addValue(in.occurredAt().atOffset(ZoneOffset.UTC))
+                .addValue(new JsonObject(Map.copyOf(features))).addValue(Numeric.create(scored.score()))
+                .addValue(scored.decision().name()).addValue(modelVersion);
+        return pool.withTransaction(connection -> connection.preparedQuery(INSERT).execute(params)
+                        .flatMap(rows -> Uni.createFrom().<Void>failure(new RollBack())))
+                .onFailure(RollBack.class).recoverWithNull();
+    }
+
+    private static final class RollBack extends RuntimeException {
+        RollBack() {
+            super("calentamiento: la transacción se revierte a propósito", null, false, false);
+        }
+    }
+
     /** Escribe {@code shadow_score} solo si está vacío; devuelve si cambió una fila. */
     Uni<Boolean> updateShadow(UUID transferId, BigDecimal shadowScore) {
         return DbCall.limited(pool.preparedQuery(UPDATE_SHADOW).execute(Tuple.of(transferId, Numeric.create(shadowScore)))

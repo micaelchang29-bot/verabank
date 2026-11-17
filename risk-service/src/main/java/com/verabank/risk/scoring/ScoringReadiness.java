@@ -20,6 +20,8 @@ class ScoringReadiness implements AsyncHealthCheck {
     Instance<ModelRegistry> registry;
     @Inject
     Instance<ScoreLog> log;
+    @Inject
+    ScoringStartup startup;
 
     @Override
     public Uni<HealthCheckResponse> call() {
@@ -30,6 +32,14 @@ class ScoringReadiness implements AsyncHealthCheck {
         if (!state.loaded()) {
             return Uni.createFrom().item(HealthCheckResponse.named(NAME).down()
                     .withData("model", "no cargado").withData("problems", state.problems().size()).build());
+        }
+        if (!startup.isWarmed()) {
+            // Calentamiento pendiente (p. ej. la base no estaba lista al arrancar): se reintenta fuera del hilo de E/S.
+            return Uni.createFrom().item(() -> startup.retryWarmUp())
+                    .runSubscriptionOn(io.smallrye.mutiny.infrastructure.Infrastructure.getDefaultWorkerPool())
+                    .map(done -> done
+                            ? HealthCheckResponse.named(NAME).up().withData("model", state.champion().modelVersion()).build()
+                            : HealthCheckResponse.named(NAME).down().withData("warmup", "pendiente").build());
         }
         return log.get().ping().ifNoItem().after(Duration.ofSeconds(1)).fail()
                 .map(v -> HealthCheckResponse.named(NAME).up().withData("model", state.champion().modelVersion()).build())

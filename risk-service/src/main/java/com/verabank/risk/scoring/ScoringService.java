@@ -102,6 +102,40 @@ class ScoringService {
         });
     }
 
+    /**
+     * Calentamiento al arrancar: {@code rounds} pasadas por la ruta completa (lectura de idempotencia, las dos consultas
+     * de features, inferencia, decisión e INSERT) con una solicitud sintética. El INSERT va en una transacción que se
+     * revierte: no deja filas en la bitácora. No toca las métricas de etapa ni las de decisión.
+     */
+    Uni<Void> warmUp(int rounds) {
+        ModelState state = registry.state();
+        if (!state.loaded()) {
+            return Uni.createFrom().failure(new IllegalStateException("el modelo no está cargado"));
+        }
+        ModelState.Champion champion = state.champion();
+        Uni<Void> chain = Uni.createFrom().voidItem();
+        for (int i = 0; i < rounds; i++) {
+            chain = chain.flatMap(v -> warmRound(champion));
+        }
+        return chain;
+    }
+
+    private Uni<Void> warmRound(ModelState.Champion champion) {
+        ScoreInput in = new ScoreInput(UUID.randomUUID(), "warmup-source", "warmup-dest", new BigDecimal("100.00"), "PEN",
+                "TRANSFER", "PE", java.time.Instant.parse("2026-01-01T12:00:00Z"));
+        Windows windows = Windows.of(in.occurredAt());
+        return log.find(in.transferId())
+                .flatMap(existing -> Uni.combine().all().unis(queries.destination(in, windows), queries.source(in, windows))
+                        .asTuple().map(t -> computer.compute(in, t.getItem1(), t.getItem2())))
+                .flatMap(f -> {
+                    float[] row = FeatureComputer.row(f, champion.featureOrder());
+                    return infer(champion.model(), row).flatMap(probability -> {
+                        DecisionPolicy.Scored scored = champion.policy().evaluate(probability);
+                        return log.insertAndRollBack(in, f, scored, champion.modelVersion());
+                    });
+                });
+    }
+
     /** ONNX Runtime es bloqueante: va al pool de workers y la continuación vuelve al contexto de Vert.x. */
     private Uni<Double> infer(OnnxModel model, float[] row) {
         Context context = Vertx.currentContext();
