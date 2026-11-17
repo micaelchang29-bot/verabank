@@ -58,6 +58,33 @@ jobs:
           path: transfer-service/target/surefire-reports/
           retention-days: 7
 
+  risk-service:
+    name: risk-service (compilación, unitarias e integración con Testcontainers)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MAVEN_OPTS: -Xmx512m
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: risk-service/pom.xml
+      - name: Imagen de Testcontainers
+        run: docker pull -q postgres:16.16
+      - name: ./mvnw verify
+        working-directory: risk-service
+        run: ./mvnw -B -ntp verify
+      - name: Informes de pruebas
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-service-surefire-reports
+          path: risk-service/target/surefire-reports/
+          retention-days: 7
+
   simulator:
     name: simulador (pruebas unitarias del rail, chaos y amlgen)
     runs-on: ubuntu-24.04

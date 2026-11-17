@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk db-grants seed-risk load-country-risk test-db
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk db-grants seed-risk load-country-risk test-db build-risk test-risk
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -110,6 +110,13 @@ load-country-risk: ## Carga db/seed/country_risk.csv (idempotente; cierra la lis
 
 test-db: ## Pruebas de db/ sobre un PostgreSQL desechable (necesita Docker)
 	@uv run --project db --frozen pytest db/tests
+
+# risk-service (Quarkus, roles scoring y stream). Las pruebas usan Testcontainers: necesitan Docker.
+test-risk: ## Compila y prueba risk-service (JUnit 5 + Testcontainers PostgreSQL)
+	@cd risk-service && ./mvnw -B -ntp verify
+
+build-risk: ## Imagen verabank/risk-service:dev (contexto: la raíz, por ml/artifacts)
+	@docker build -f risk-service/Dockerfile -t verabank/risk-service:dev .
 
 # Generador AML con verdad de terreno (simulator/amlgen.yaml; salida en data/aml, ignorada por Git).
 SEED ?= 42

@@ -1,0 +1,10 @@
+# Solo lo que usa risk-service/Dockerfile: el contexto es la raíz del repositorio y data/ pesa cientos de MB.
+*
+!risk-service/mvnw
+!risk-service/pom.xml
+!risk-service/.mvn
+!risk-service/src
+!ml/artifacts/model.onnx
+!ml/artifacts/thresholds.json
+!ml/artifacts/manifest.json
+!ml/artifacts/challenger/model.onnx
