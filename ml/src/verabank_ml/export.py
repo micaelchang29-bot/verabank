@@ -220,6 +220,7 @@ def export_command(argv: list[str]) -> int:
             "champion": {k: onnx_files["model.onnx"][k] for k in MODEL_KEYS},
             "challenger": {k: onnx_files["shadow.onnx"][k] for k in MODEL_KEYS},
         },
+        "git_commit": thresholds["provenance"]["git_commit"],
         "onnxruntime_version": ort.__version__,
         "model_io": {
             "input_name": INPUT_NAME,

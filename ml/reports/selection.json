@@ -55,7 +55,7 @@
     {
       "name": "inference_p95",
       "rule": "p95 de xgb en ONNX Runtime < 10 ms",
-      "value": 0.004028,
+      "value": 0.004579,
       "result": "PASS"
     }
   ],
@@ -63,13 +63,13 @@
   "models": {
     "logreg": {
       "name": "fraud-logreg",
-      "version": "4",
-      "run_id": "7f8fbc063b9f4965a6cd81e70996709b"
+      "version": "5",
+      "run_id": "ee5f686a5ab8489e8981c20a3e1c7b20"
     },
     "xgb": {
       "name": "fraud-xgb",
-      "version": "4",
-      "run_id": "1f5f4d6ab96148c4a6706fe4941dfe55"
+      "version": "5",
+      "run_id": "fa20154c29e645c195ada1874947260c"
     }
   },
   "best_configs": {
@@ -245,17 +245,17 @@
   "latency": {
     "logreg": {
       "calls": 10000,
-      "p50_ms": 0.003797,
-      "p95_ms": 0.004238,
-      "p99_ms": 0.008135200000000004,
-      "max_ms": 0.064693
+      "p50_ms": 0.003908,
+      "p95_ms": 0.004889,
+      "p99_ms": 0.006342200000000004,
+      "max_ms": 0.064853
     },
     "xgb": {
       "calls": 10000,
-      "p50_ms": 0.003647,
-      "p95_ms": 0.004028,
-      "p99_ms": 0.013706100000000002,
-      "max_ms": 0.061597
+      "p50_ms": 0.003667,
+      "p95_ms": 0.004579,
+      "p99_ms": 0.005921200000000004,
+      "max_ms": 0.064543
     }
   },
   "parity": {
@@ -269,10 +269,10 @@
     }
   },
   "provenance": {
-    "git_commit": "c26dfd521cccab65e5892c48466a3c754895c087",
+    "git_commit": "9d8b9b70e5aad992bc3ba9b6a1d2301958d31ba1",
     "features_yaml_sha256": "5de9692aabe09dd4062ee3b258321906cab5b2c322721bd7bbb84ac2df238527",
     "csv_sha256": "16910f90577b0d981bf8ff289714510bb89bc71bff7d3f220f024e287e4eea6b",
-    "config_yaml_sha256": "02bb6bb5162ff94057eb9f71aaa9349851a92547001f04eaf3bf795714419552"
+    "config_yaml_sha256": "184ec660f34e0adaf48c354921e40b00bb2b9b62396df397dc6b6b5137fb1452"
   },
   "valid": {
     "logreg": {

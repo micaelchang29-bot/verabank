@@ -197,6 +197,17 @@ def test_manifest_records_the_real_onnx_opsets_ir_and_runtime_version(manifest):
         assert len(entry["opset_imports"]) == len(model.opset_import), name
 
 
+def test_thresholds_and_manifest_share_the_provenance(manifest, thresholds):
+    """Mismo `config.yaml` (el vigente) y el mismo commit de entrenamiento, sin árbol sucio."""
+    config_hash = sha256(REPO_ROOT / "ml" / "config.yaml")
+    prov = thresholds["provenance"]
+    assert prov["config_yaml_sha256"] == manifest["inputs"]["ml/config.yaml"] == config_hash
+    assert prov["features_yaml_sha256"] == manifest["inputs"]["contracts/features.yaml"]
+    assert prov["csv_sha256"] == manifest["inputs"]["paysim.csv"]
+    assert manifest["git_commit"] == prov["git_commit"]
+    assert re.fullmatch(r"[0-9a-f]{40}", prov["git_commit"]), prov["git_commit"]  # sin «-dirty»
+
+
 def test_manifest_and_thresholds_agree_on_the_champion(manifest, thresholds):
     champion = manifest["models"]["champion"]
     assert thresholds["model_version"] == f"{champion['registered_model']}/{champion['version']}"

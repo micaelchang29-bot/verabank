@@ -3,7 +3,7 @@
 Generado por `make ml-report`. Hiperparámetros, umbrales y selección usan solo `valid`; `test` se evalúa una vez con todo congelado.
 
 ## Modelo servido
-**xgb** (`fraud-xgb/4`), conjunto A. Motivo: el boosting cumple los cuatro criterios.
+**xgb** (`fraud-xgb/5`), conjunto A. Motivo: el boosting cumple los cuatro criterios.
 
 > **Advertencia:** valid tiene 6 bloques de 24 pasos (menos de 10): los intervalos por bootstrap de bloques son poco fiables.
 
@@ -12,7 +12,7 @@ Generado por `make ml-report`. Hiperparámetros, umbrales y selección usan solo
 | pr_auc_gain | PR-AUC(xgb) - PR-AUC(logreg) >= 0.02 | 0.2031 | PASS |
 | pr_auc_intervals_do_not_overlap | low(xgb) > high(logreg) con bloques de 24 y de 6 pasos; si difieren, cuenta como no cumplido | {"block_steps_24": {"n_blocks_valid": 6, "logreg_pr_auc_interval": [0.24878556714140873, 0.47883977767545627], "xgb_pr_auc_interval": [0.48024692312267847, 0.6441889785785091], "no_overlap": true}, "block_steps_6": {"n_blocks_valid": 21, "logreg_pr_auc_interval": [0.25358485261661223, 0.47826266278809515], "xgb_pr_auc_interval": [0.48170484874820635, 0.6467254600838906], "no_overlap": true}} | PASS |
 | cost_lower | costo(xgb) < costo(logreg) en valid, cada uno con sus umbrales | {"logreg": 533098846.56, "xgb": 530831837.98} | PASS |
-| inference_p95 | p95 de xgb en ONNX Runtime < 10 ms | 0.004028 | PASS |
+| inference_p95 | p95 de xgb en ONNX Runtime < 10 ms | 0.004579 | PASS |
 
 Intervalos de PR-AUC en `valid` con bloques de 24 pasos (6 bloques; el mínimo fiable es 10) y de 6 pasos (21 bloques):
 
@@ -21,7 +21,7 @@ Intervalos de PR-AUC en `valid` con bloques de 24 pasos (6 bloques; el mínimo f
 | logreg | [0.2488, 0.4788] | [0.2536, 0.4783] |
 | xgb | [0.4802, 0.6442] | [0.4817, 0.6467] |
 
-Latencia de inferencia (ONNX Runtime, un hilo, una fila por llamada, 10,000 llamadas): logreg p95 0.0042 ms; xgb p95 0.0040 ms.
+Latencia de inferencia (ONNX Runtime, un hilo, una fila por llamada, 10,000 llamadas): logreg p95 0.0049 ms; xgb p95 0.0046 ms.
 
 ## Métricas en valid (pasos 425–550)
 
