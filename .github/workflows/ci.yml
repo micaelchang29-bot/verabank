@@ -1,4 +1,4 @@
-# CI de la fase 1: contratos, compilación y pruebas de transfer-service, pruebas del simulador y humo con Compose.
+# CI de la fase 1: contratos, compilación y pruebas de transfer-service, pruebas del simulador, humo de ONNX del módulo ml y humo con Compose.
 # Dimensionado para el runner estándar de 4 CPU y 16 GB: una JVM de pruebas (-Xmx1g) con
 # PostgreSQL y Kafka compartidos por toda la suite; el humo levanta el perfil core (≈ 2 GB).
 name: ci
@@ -77,6 +77,28 @@ jobs:
         run: uv sync --frozen
       - name: pytest sin integración (esa necesita Kafka; ver make test-rail-it)
         run: uv run pytest -m "not integration"
+
+  ml:
+    name: ml (humo de conversión a ONNX)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.8"
+      - name: uv sync --frozen
+        run: uv sync --frozen
+      - name: ruff check
+        run: uv run ruff check .
+      - name: pytest sin datos (las pruebas con marcador data necesitan PaySim)
+        run: uv run pytest -m "not data"
 
   smoke:
     name: humo (make up-core, demo-idempotency, reconcile)
