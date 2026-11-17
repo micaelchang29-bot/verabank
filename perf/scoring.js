@@ -98,6 +98,10 @@ export function score() {
   const res = http.post(`${BASE_URL}/internal/v1/scores`, JSON.stringify(payload), {
     headers: { 'Content-Type': 'application/json', 'X-Correlation-Id': uuid() },
   });
+  if (res.status !== 200) {
+    // Una línea por fallo, con el instante y el segundo de la prueba, para ver si se concentran o son periódicos.
+    console.error(`FALLO ${JSON.stringify({ at: new Date().toISOString(), t_s: Math.round(exec.instance.currentTestRunDuration / 100) / 10, scenario: exec.scenario.name, status: res.status, ms: Math.round(res.timings.duration), body: String(res.body).slice(0, 120) })}`);
+  }
   check(res, {
     'status 200': (r) => r.status === 200,
     'decisión válida': (r) => r.status === 200 && ['APPROVE', 'REVIEW', 'BLOCK'].includes(r.json('decision')),
