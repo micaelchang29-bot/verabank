@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -24,7 +25,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * El sondeo no espera a las sagas que otra transacción ya tiene bloqueadas (docs/saga.md §7:
  * {@code FOR UPDATE SKIP LOCKED}). Con el sondeo apagado, otra conexión retiene el bloqueo de la saga
  * vencida más antigua: {@code nextDue} debe volver enseguida y saltársela, no quedarse esperando.
+ *
+ * <p>Cierra su contexto al terminar: cada contexto cacheado retiene un pool de 10 conexiones y la suite
+ * ya está cerca del límite de PostgreSQL (SagaPollerIT levanta una segunda instancia).
  */
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class SagaNextDueIT extends IntegrationTest {
 
     @Autowired
