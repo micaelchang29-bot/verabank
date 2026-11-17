@@ -1,7 +1,7 @@
 # risk-service
 
-Servicio Quarkus 3.40 (Java 21, modo JVM) con **una imagen y dos roles** (ADR-08): `scoring` (este documento, tarea 4.C) y
-`stream` (consumidor de Kafka y reglas AML, tarea 4.E; hoy solo un marcador). El rol se elige al arrancar con
+Servicio Quarkus 3.40 (Java 21, modo JVM) con **una imagen y dos roles** (ADR-08): `scoring` (tarea 4.C) y `stream`
+(consumidores de Kafka, reglas AML, alertas y etiquetas, tarea 4.E). El rol se elige al arrancar con
 `VERABANK_ROLE=scoring|stream` (D3): los beans del rol se activan por configuración de ejecución (`@LookupIfProperty`), no
 al compilar. Los paquetes `scoring` y `stream` no se importan entre sí (prueba ArchUnit).
 
@@ -31,11 +31,67 @@ qué falló, sin volcar contenido. Si el challenger no es válido, solo se desac
 40, 10 y 10 ms y 150 ms en total), `scoring.decisions{decision}`, `scoring.errors{type}`, `scoring.shadow.failures`.
 Hay una muestra de `log` por cada sentencia contra la bitácora: la lectura previa de idempotencia y la inserción.
 
+## Rol stream
+
+`VERABANK_ROLE=stream`: no carga ONNX Runtime ni el modelo (D3) y su pool de PostgreSQL es propio (`stream`, rol `risk_svc`).
+Los canales de Kafka solo se abren con este rol (`StreamEnabledInterceptor` deriva su `enabled` del rol).
+
+**Consumidores** (Reactive Messaging, commit manual: el offset se confirma al reconocer el mensaje, después de confirmar la
+transacción local y de publicar las alertas):
+
+| Tópico | Grupo | Efecto |
+|---|---|---|
+| `transfer.events.v1` | `risk-stream` | `TransferCompleted`: inbox (`risk.processed_messages`, `risk-stream:transfer-events`) + `INSERT … ON CONFLICT DO NOTHING` en `risk.transfer_facts` + cadena de reglas + upsert de alertas, en UNA transacción. Cualquier otro `event_type` se reconoce sin efecto. |
+| `fraud.labels.v1` | `risk-stream-labels` | `FraudLabelConfirmed`: inbox + upsert en `risk.fraud_labels`; una etiqueta con otro valor o fuente actualiza `is_fraud` y `labeled_at`. |
+
+Errores: un mensaje que no valida contra `envelope.v1.json` y el esquema de su payload va directo a `<tópico>.dlt` (partición 0,
+sin reintentos); cualquier otro fallo se reintenta 3 veces (`VERABANK_STREAM_RETRIES`, espera `VERABANK_STREAM_RETRY_BACKOFF`) y
+después va al `.dlt` con `x-original-topic/-partition/-offset` y `x-exception-class/-message`. Los esquemas viajan en el jar,
+copiados de `contracts/events` al compilar.
+
+**Cadena de reglas** (`AmlRule`, cadena de responsabilidad; `docs/diseno.md` §5a). Los parámetros salen de la versión activa de
+`risk.aml_rules`, en caché y releída cada 60 s (`VERABANK_RULES_REFRESH`); cada alerta guarda `rule_version` y `rule_params`.
+Todas las ventanas usan el tiempo de negocio del evento (`occurred_at`), nunca `now()`.
+
+| Orden | Regla | Comportamiento |
+|---|---|---|
+| 10 | `ExemptionRule` | Origen en `risk.aml_exempt_accounts`: corta la cadena (el hecho sí se proyecta). |
+| 20 | `ThresholdRule` | Monto ≥ umbral → `MEDIUM`; `dedupe_key = THRESHOLD\|origen\|transfer_id`. |
+| 30 | `StructuringRule` | Mismo origen en `[t − 24 h, t]` con `min_ratio ≤ monto/umbral < max_ratio` (máximo exclusivo): ≥ `min_count` y suma ≥ `min_total` → `HIGH`; `dedupe_key = STRUCTURING\|origen\|occurred_at de la primera`. El upsert reemplaza `transfer_ids`, `total_amount` y `window_end`; conserva `created_at`, `status` y `trigger_emitted_at`. |
+| 40 | `CountryRiskRule` | País con nivel vigente en `occurred_at` en `risk.country_risk` (`[valid_from, valid_to)`): `HIGH` con monto ≥ 1.000 → `HIGH`; `WATCH` con monto ≥ 5.000 → `MEDIUM`. |
+
+Una regla nueva (la futura `FAN_IN`) es un bean más que extiende `AccumulatingRule`: `AmlChain` las ordena por `order()` y no se
+toca ninguna existente (`AmlRulesIT.aNewRuleJoinsTheChainWithoutTouchingTheExistingOnes` lo demuestra con una regla ficticia).
+Una regla sin versión activa (hoy `FAN_IN`) se omite.
+
+**Publicación.** `AmlAlertRaised` en `aml.alerts.v1`, clave `subject_account_id`, productor idempotente con `acks=all`, solo
+después de confirmar la transacción y solo si la alerta es nueva o cambió su conjunto de transferencias (D6). Si Kafka no
+confirma tras los reintentos, la alerta ya está guardada y el mensaje de origen va al `.dlt` (reprocesarlo no republica: el
+inbox ya lo registró).
+
+**API** (`contracts/openapi.yaml`, API key por canal `VERABANK_API_KEYS=canal:clave,…` como transfer-service; sin clave, `401`):
+`GET /api/v1/aml/alerts` (filtros `status`, `severity`, `rule_code`; `limit` 1–200; cursor opaco; orden: severidad descendente
+y, a igual severidad, la más antigua primero) y `PATCH /api/v1/aml/alerts/{id}` con `{status, comment}`. Transiciones:
+`OPEN → IN_REVIEW`; `IN_REVIEW → ESCALATED | CLOSED_FALSE_POSITIVE | CLOSED_CONFIRMED`; `ESCALATED → CLOSED_*`; otra,
+`409 alert-transition-invalid`. Cada cambio se audita con `audit.append` (`AML_ALERT_STATUS_CHANGED`, actor = canal) y al cerrar
+se fijan `closed_at` y `closed_by` (el canal).
+
+**Métricas** (`/q/metrics`): `stream_consumer_delay_seconds{topic}` (ahora − `emitted_at`), `kafka_consumer_fetch_manager_records_lag*`
+(binder de Kafka), `aml_alerts_raised_total{rule_code}`, `aml_alerts_updated_total{rule_code}`,
+`aml_alert_persist_latency_seconds` (`created_at − trigger_emitted_at`, cubetas hasta 5 s), `stream_dlt_total{topic,reason}`,
+`stream_processing_attempts_total{consumer}`, `stream_inbox_duplicates_total{consumer}`, `aml_alerts_publish_failures_total`.
+**Readiness** (`/q/health/ready`, comprobación `stream`): PostgreSQL y Kafka.
+
 ## Configuración
 
 | Variable | Por defecto | Qué hace |
 |---|---|---|
 | `VERABANK_ROLE` | `scoring` | `scoring` o `stream` |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | broker (rol stream) |
+| `VERABANK_API_KEYS` | vacío | `canal:clave,…`; obligatoria con el rol stream (≥ 16 caracteres por clave) |
+| `VERABANK_STREAM_RETRIES` `VERABANK_STREAM_RETRY_BACKOFF` | `3` `1s` | reintentos antes del `.dlt` |
+| `VERABANK_RULES_REFRESH` | `60s` | refresco de la caché de `risk.aml_rules` |
+| `VERABANK_STREAM_POOL_SIZE` | `10` | conexiones del pool `stream` |
 | `VERABANK_SHADOW_ENABLED` | `false` | puntúa también el challenger |
 | `VERABANK_QUERY_TIMEOUT` | `100ms` | tiempo máximo por consulta |
 | `VERABANK_SCORING_POOL_SIZE` | `10` | conexiones del pool reactivo dedicado (`scoring`) |
@@ -49,7 +105,7 @@ repositorio) y viajan dentro del jar. `verabank.artifacts.dir` los lee de un dir
 ## Compilar, probar y construir la imagen
 
 ```bash
-make test-risk    # ./mvnw verify: unitarias e integración con Testcontainers PostgreSQL (necesita Docker)
+make test-risk    # ./mvnw verify: unitarias e integración con Testcontainers PostgreSQL y Kafka (necesita Docker)
 make build-risk   # docker build -f risk-service/Dockerfile .  (contexto: la raíz, por ml/artifacts)
 ```
 
@@ -57,4 +113,6 @@ Las pruebas levantan PostgreSQL con los roles, migraciones y permisos reales de 
 `risk_svc`. Cubren: ejemplos a mano de `FeatureComputer`; T-11 (límites de `t_review` y `t_block`, empates de redondeo);
 T-13 con los 1.000 casos de `golden.jsonl` y de `golden_challenger.jsonl` y con los escenarios de
 `contracts/fixtures/feature_scenarios.json` a través del servicio; `EXPLAIN` index-only; idempotencia secuencial y con 20
-hilos; artefactos alterados; sombra; y que el rol `stream` no activa el scoring ni hay clientes de Kafka.
+hilos; artefactos alterados; sombra; y que el rol `stream` no carga el modelo ni el rol `scoring` abre consumidores. Con
+Kafka real, el rol `stream`: T-15, bordes de las tres reglas, versiones activas, exención, reentrega, DLT y reintentos,
+etiquetas, API de alertas con auditoría, contratos y latencia evento → alerta (200 eventos, `target/latency-report.txt`).

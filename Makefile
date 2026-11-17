@@ -114,7 +114,7 @@ test-db: ## Pruebas de db/ sobre un PostgreSQL desechable (necesita Docker)
 	@uv run --project db --frozen pytest db/tests
 
 # risk-service (Quarkus, roles scoring y stream). Las pruebas usan Testcontainers: necesitan Docker.
-test-risk: ## Compila y prueba risk-service (JUnit 5 + Testcontainers PostgreSQL)
+test-risk: ## Compila y prueba risk-service (JUnit 5 + Testcontainers PostgreSQL y Kafka)
 	@cd risk-service && ./mvnw -B -ntp verify
 
 build-risk: ## Imagen verabank/risk-service:dev (contexto: la raíz, por ml/artifacts)
