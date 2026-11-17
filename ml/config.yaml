@@ -1,0 +1,43 @@
+# Parámetros del pipeline de ML (docs/diseno.md §5b y §5c). Solo valores: la lógica vive en src/.
+
+# Tipos de transferencia que entran al modelo (contracts/features.yaml, feature `type`).
+# PaySim también trae CASH_IN, que queda fuera del dominio.
+types: [TRANSFER, CASH_OUT, PAYMENT, DEBIT]
+
+# Split temporal por `step` (1 paso = 1 hora), intervalos cerrados. Los pasos entre una partición y la
+# siguiente no se usan (hueco de gap_steps: imita el retraso de las etiquetas).
+split:
+  train: [1, 400]
+  valid: [425, 550]
+  test: [575, 744]
+  gap_steps: 24
+
+# Instante del paso 1 (UTC). occurred_at = sim_epoch + (step - 1) horas. Lo usan el golden y el replay.
+sim_epoch: "2026-01-01T00:00:00Z"
+
+# Costo de negocio: C = Σ monto(fraude aprobado) + review·n(REVIEW) + block_false_positive·n(legítimas bloqueadas).
+# Los costos unitarios son supuestos; se reporta la sensibilidad de ±sensitivity (fracción).
+costs:
+  review: 3
+  block_false_positive: 15
+  sensitivity: 0.5
+
+# Recall se mide con la tasa de falsos positivos fija en estos valores (0,5 % y 0,1 %).
+fpr_targets: [0.005, 0.001]
+# t_block: menor umbral con FPR de bloqueo <= block_fpr_max (0,05 %).
+block_fpr_max: 0.0005
+# t_review: minimiza el costo con tasa de revisión <= review_rate_max (0,5 %, capacidad de analistas).
+review_rate_max: 0.005
+
+# Intervalos por bootstrap de bloques de pasos (24 pasos = un día).
+bootstrap:
+  block_steps: 24
+  sensitivity_block_steps: 6   # análisis de sensibilidad con bloques de 6 horas
+  n_resamples: 1000
+
+# Selección de modelo (§5d).
+selection:
+  min_pr_auc_gain: 0.02        # el modelo más complejo gana solo si mejora el PR-AUC en al menos esto
+  max_inference_p95_ms: 10     # latencia p95 de inferencia admisible
+
+seed: 42
