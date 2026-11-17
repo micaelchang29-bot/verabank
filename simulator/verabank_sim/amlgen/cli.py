@@ -43,6 +43,7 @@ def build(config_path: Path, seed: int, out: Path) -> dict[str, Any]:
     manifest = {
         "seed": seed,
         "config_sha256": hashlib.sha256(raw).hexdigest(),
+        "transfer_id_scheme": "uuid5(NS, '<seed>:t:<i>'), i = posición en el orden barajado con la semilla",
         "sim_epoch": cfg["sim_epoch"],
         "days": cfg["days"],
         "accounts": cfg["accounts"],

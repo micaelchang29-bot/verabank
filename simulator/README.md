@@ -196,7 +196,7 @@ cd simulator && uv run python -m verabank_sim amlgen --seed 42 --out ../data/aml
 
 | Archivo | Contenido |
 |---|---|
-| `transfers.jsonl` | Una línea por solicitud: los campos del cuerpo de `POST /api/v1/transfers` más `transfer_id` (uuid5 determinista) y `occurred_at`; montos como cadena decimal. **Sin ninguna clave ni marca de la verdad de terreno.** |
+| `transfers.jsonl` | Una línea por solicitud: los campos del cuerpo de `POST /api/v1/transfers` más `transfer_id` y `occurred_at`; montos como cadena decimal. **Sin ninguna clave ni marca de la verdad de terreno.** El `transfer_id` es `uuid5(NS, "<semilla>:t:<i>")`, con `i` la posición en un orden barajado con la semilla: es determinista y opaco (no contiene ni deja derivar la tipología, la instancia ni el orden de generación). |
 | `ground_truth.jsonl` | Una línea por instancia: `typology`, `instance_id`, `accounts` y `transfer_ids` (en orden de tiempo; en `FAST_PASS`, entrada y salida). El sistema nunca lo recibe. |
 | `manifest.json` | Semilla, conteos, SHA-256 de los archivos y de `amlgen.yaml`, y la cobertura estimada por tipología. |
 

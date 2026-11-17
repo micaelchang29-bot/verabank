@@ -11,7 +11,10 @@ import pytest
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
+import uuid
+
 from verabank_sim.amlgen.cli import DEFAULT_CONFIG, build
+from verabank_sim.amlgen.generate import NS, TYPOLOGIES
 
 ROOT = Path(__file__).resolve().parents[2]
 CFG = yaml.safe_load(DEFAULT_CONFIG.read_text())
@@ -69,6 +72,32 @@ def test_transfers_sin_verdad_de_terreno(run: dict) -> None:
     for word in ("typology", "instance", "ground", "truth", "structuring", "fan_in", "fast_pass", "country_risk"):
         assert word not in raw
     assert len({t["transfer_id"] for t in run["transfers"]}) == len(run["transfers"])
+
+
+def test_transfer_id_no_se_deriva_de_una_clave_con_la_tipologia(run: dict) -> None:
+    """Ningún id se reproduce con uuid5 sobre una clave que lleve el nombre de una tipología."""
+    ids = {t["transfer_id"] for t in run["transfers"]}
+    seed = run["manifest"]["seed"]
+    forms = ("{seed}:{typ}:{n}:{k}", "{seed}:{typ}:{n}", "{typ}:{n}:{k}", "{seed}:{n}:{typ}:{k}", "{seed}:t:{typ}:{n}")
+    for typ in TYPOLOGIES:
+        for n in range(CFG["typologies"][typ]["instances"] + 10):
+            for k in range(25):
+                for form in forms:
+                    key = form.format(seed=seed, typ=typ, n=n, k=k)
+                    assert str(uuid.uuid5(NS, key)) not in ids, key
+    # el esquema documentado sí los reproduce: índice opaco 0..N-1 sobre los N ids
+    opaque = {str(uuid.uuid5(NS, f"{seed}:t:{i}")) for i in range(len(run["transfers"]))}
+    assert opaque == ids
+
+
+def test_transfer_id_no_sigue_el_orden_de_generacion(run: dict) -> None:
+    """Las transferencias de una misma instancia no ocupan índices consecutivos ni ordenados."""
+    index = {str(uuid.uuid5(NS, f"{run['manifest']['seed']}:t:{i}")): i for i in range(len(run["transfers"]))}
+    consecutive = 0
+    for g in run["truth"]:
+        pos = [index[i] for i in g["transfer_ids"]]
+        consecutive += sum(1 for a, b in zip(pos, pos[1:]) if b == a + 1)
+    assert consecutive < 5, consecutive
 
 
 def test_ids_de_la_verdad_existen(run: dict) -> None:

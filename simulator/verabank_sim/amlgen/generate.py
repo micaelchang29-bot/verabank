@@ -44,7 +44,8 @@ class _Builder:
         return random.Random(f"amlgen:{self.seed}:{stream}")
 
     def tid(self, key: str) -> str:
-        return str(uuid.uuid5(NS, f"{self.seed}:{key}"))
+        """Identificador provisional de generación; `finalize` lo sustituye por uno opaco."""
+        return key
 
     def at(self, offset_s: int) -> str:
         return (self.epoch + timedelta(seconds=offset_s)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -204,10 +205,26 @@ def _fast_pass(b: _Builder) -> list[dict[str, Any]]:
     return out
 
 
+def opaque_ids(keys: list[str], seed: int) -> dict[str, str]:
+    """Clave provisional -> `transfer_id`. Se barajan con la semilla y el id sale de `f"{seed}:t:{i}"`.
+
+    El índice `i` no guarda relación con la tipología, la instancia ni el orden de generación; el id no se
+    puede reconstruir a partir de una clave que contenga el nombre de una tipología.
+    """
+    order = list(keys)
+    random.Random(f"amlgen:{seed}:ids").shuffle(order)
+    return {key: str(uuid.uuid5(NS, f"{seed}:t:{i}")) for i, key in enumerate(order)}
+
+
 def generate(cfg: dict[str, Any], seed: int) -> Generated:
     b = _Builder(cfg, seed)
     near = _background(b)
     truth = [*_structuring(b), *_country_risk(b), *_fan_in(b), *_fast_pass(b)]
+    ids = opaque_ids([t["transfer_id"] for t in b.transfers], seed)
+    for t in b.transfers:
+        t["transfer_id"] = ids[t["transfer_id"]]
+    for g in truth:
+        g["transfer_ids"] = [ids[k] for k in g["transfer_ids"]]
     b.transfers.sort(key=lambda t: (t["occurred_at"], t["transfer_id"]))
     truth.sort(key=lambda g: (TYPOLOGIES.index(g["typology"]), g["instance_id"]))
     return Generated(b.transfers, truth, near, b.accounts)
