@@ -99,13 +99,15 @@ public class RailSaga {
             };
             case SagaStates.COMPENSATING, SagaStates.COMPENSATED -> contradictsCompensation(reply);
             case SagaStates.COMPENSATION_FAILED -> {
-                if (saga.payload().has("compensation_started_at")) {
-                    yield contradictsCompensation(reply);
+                // docs/saga.md §5: se distingue por el estado en que se detuvo (payload.resume_status).
+                if (SagaStates.COMPENSATING.equals(saga.payloadText("resume_status"))) {
+                    yield contradictsCompensation(reply);   // ya se compensaba: un CONFIRMED contradice
                 }
-                // Se detuvo esperando al rail, sin compensar: no hay contradicción. Al reanudarla,
-                // el sondeo vuelve a preguntar al rail.
-                log.warn("respuesta {} para la saga {} detenida en COMPENSATION_FAILED antes de compensar; se ignora",
-                        reply.eventType(), saga.sagaId());
+                // Se detuvo antes de compensar, esperando al rail: la respuesta no es una contradicción. Se ignora
+                // y, al reanudarla, el sondeo vuelve a preguntar al rail y la resuelve.
+                log.warn("respuesta {} ({}) para la saga {} detenida en COMPENSATION_FAILED antes de compensar "
+                        + "(resume_status {}); se ignora y la resolverá el sondeo tras la reanudación",
+                        reply.eventType(), reply.kind(), saga.sagaId(), saga.payloadText("resume_status"));
                 yield Result.NO_CHANGE;
             }
             default -> throw new InvalidReplyException("la saga " + saga.sagaId() + " está en " + saga.status()

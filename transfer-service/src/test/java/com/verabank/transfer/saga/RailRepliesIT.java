@@ -8,6 +8,9 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.verabank.transfer.scoring.FraudScorer;
@@ -39,6 +42,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -322,6 +326,96 @@ class RailRepliesIT extends IntegrationTest {
         assertThat(saga(id)).isEqualTo("COMPLETED:DONE");
         assertThat(bank.countEntries(id, "D")).isEqualTo(1);
         assertThat(bank.held(source)).isEqualByComparingTo("0");
+        assertThat(bank.reconcile()).containsExactly(0, 0);
+    }
+
+    // ------------------------------------------------------------------ §5: COMPENSATION_FAILED según resume_status
+
+    /** Deja la saga detenida como lo haría S15, con el estado previo dado en {@code payload.resume_status}. */
+    private void stopSaga(UUID id, String resumeStatus) {
+        String patch = "COMPENSATING".equals(resumeStatus)
+                ? "{\"resume_status\":\"COMPENSATING\",\"compensation_started_at\":\"2026-11-16T10:00:00Z\","
+                        + "\"fail_reason\":\"RAIL_REJECTED\"}"
+                : "{\"resume_status\":\"" + resumeStatus + "\"}";
+        jdbc.sql("""
+                UPDATE core.saga_state
+                SET status = 'COMPENSATION_FAILED', current_step = :step, wake_at = NULL, attempt = 5,
+                    payload = payload || CAST(:patch AS jsonb), version = version + 1
+                WHERE saga_id = :t""")
+                .param("step", "COMPENSATING".equals(resumeStatus) ? "COMPENSATING" : "CREDIT_REQUESTED")
+                .param("patch", patch).param("t", id).update();
+    }
+
+    private ListAppender<ILoggingEvent> capture(Class<?> logger) {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(logger)).addAppender(appender);
+        return appender;
+    }
+
+    private static void release(Class<?> logger, ListAppender<ILoggingEvent> appender) {
+        ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(logger)).detachAppender(appender);
+    }
+
+    @Test
+    void unConfirmedConLaSagaDetenidaCompensandoEsContradiccionConErrorYMetrica() {
+        UUID id = externalTransfer("100.00");
+        stopSaga(id, "COMPENSATING");
+        double conflicts = count("saga.conflicting_reply");
+        long version = sagas.find(id).orElseThrow().version();
+        ListAppender<ILoggingEvent> log = capture(RailReplyConsumer.class);
+        try {
+            UUID lateEvent = UUID.randomUUID();
+            rail.send(RailDouble.confirmed(id).withEventId(lateEvent));
+            awaitProcessed(lateEvent);
+
+            assertThat(count("saga.conflicting_reply")).isEqualTo(conflicts + 1);
+            assertThat(log.list).anySatisfy(e -> {
+                assertThat(e.getLevel()).isEqualTo(Level.ERROR);
+                assertThat(e.getFormattedMessage()).contains("contradictoria").contains(id.toString());
+            });
+        } finally {
+            release(RailReplyConsumer.class, log);
+        }
+        assertThat(sagas.find(id).orElseThrow().version()).as("sin cambios en la saga").isEqualTo(version);
+        assertThat(saga(id)).isEqualTo("COMPENSATION_FAILED:COMPENSATING");
+        assertThat(status(id)).isEqualTo("PROCESSING");
+        assertThat(bank.countEntries(id, "D")).isZero();
+        assertThat(bank.held(source)).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void unConfirmedConLaSagaDetenidaAntesDeCompensarSeIgnoraConWarnYElSondeoLaResuelveTrasReanudar() {
+        UUID id = externalTransfer("100.00");
+        stopSaga(id, "WAITING_REPLY");
+        double conflicts = count("saga.conflicting_reply");
+        long version = sagas.find(id).orElseThrow().version();
+        ListAppender<ILoggingEvent> log = capture(RailSaga.class);
+        try {
+            UUID lateEvent = UUID.randomUUID();
+            rail.send(RailDouble.confirmed(id).withEventId(lateEvent));
+            awaitProcessed(lateEvent);
+
+            assertThat(count("saga.conflicting_reply")).as("no es una contradicción").isEqualTo(conflicts);
+            assertThat(log.list).anySatisfy(e -> {
+                assertThat(e.getLevel()).isEqualTo(Level.WARN);
+                assertThat(e.getFormattedMessage()).contains(id.toString()).contains("antes de compensar");
+            });
+            assertThat(log.list).noneMatch(e -> e.getLevel() == Level.ERROR);
+        } finally {
+            release(RailSaga.class, log);
+        }
+        assertThat(sagas.find(id).orElseThrow().version()).as("sin cambios en la saga").isEqualTo(version);
+        assertThat(saga(id)).isEqualTo("COMPENSATION_FAILED:CREDIT_REQUESTED");
+        assertThat(status(id)).isEqualTo("PROCESSING");
+        assertThat(bank.held(source)).isEqualByComparingTo("100.00");
+
+        // Reanudada, el sondeo vuelve a preguntar al rail y el CreditStatus CONFIRMED la completa.
+        assertThat(http.post(KEY_WEB, "/internal/v1/sagas/" + id + "/resume").status()).isEqualTo(200);
+        await().atMost(Duration.ofSeconds(20)).until(() -> rail.count(id, "CreditStatusQuery") >= 1);
+        rail.send(RailDouble.status(id, "CONFIRMED"));
+        await().atMost(Duration.ofSeconds(20)).until(() -> "COMPLETED".equals(status(id)));
+        assertThat(bank.countEntries(id, "D")).isEqualTo(1);
         assertThat(bank.reconcile()).containsExactly(0, 0);
     }
 

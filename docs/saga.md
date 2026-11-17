@@ -5,9 +5,9 @@ Especificación del orquestador de `transfer-service`. Desarrolla §2.3 y ADR-01
 ## 1. Principios
 
 1. Las transferencias internas son un paso local y atómico de la misma máquina de estados (ADR-01). La saga se justifica por el tramo externo.
-2. Ninguna llamada de red ocurre dentro de una transacción. El scorer se invoca entre `tx1` y `tx2`; el rail solo se alcanza por outbox.
+2. Ninguna llamada de red ocurre dentro de una transacción de la saga ni del sondeo. El scorer se invoca entre `tx1` y `tx2`; el rail solo se alcanza por outbox. El relay del outbox es la excepción deliberada (ADR-02): mantiene su transacción, con el bloqueo consultivo y los bloqueos de fila del lote, mientras espera a Kafka (hasta `send-timeout`), porque marcar `published_at` solo tras la confirmación es lo que garantiza el orden y la entrega al menos una vez.
 3. Un silencio o un timeout del rail no es un fallo. Solo se compensa con una respuesta explícita del rail: `CreditRejected`, o `CreditStatus` con `REJECTED` o `CANCELLED`.
-4. Cada transición, su evento de outbox, su fila de auditoría y, si la causa es un mensaje, su registro en el inbox se confirman en una sola transacción.
+4. Cada transición, su evento de outbox, su fila de auditoría y, si la causa es un mensaje, su registro en el inbox se confirman en una sola transacción. Las excepciones son S11, S13 y S14, que no auditan: S11 y S13 ocurren en cada sondeo al rail (una fila por consulta, miles por corrida) y la cadena de hash de `audit.audit_log` se escribe en serie, así que auditarlas la convertiría en cuello de botella; el rastro de S11 y S13 son sus eventos de outbox y el de S14 es `attempt` y `last_error` en la saga. S15 sí audita (`SAGA_COMPENSATION_FAILED`).
 5. Concurrencia: bloqueo optimista por `core.saga_state.version`. La unicidad de asientos (`uq_entry`) es la última defensa contra un doble asiento.
 6. Los fondos no se pierden ni se duplican: ante un fallo que la saga no puede resolver, quedan retenidos y la saga se detiene con alerta (`COMPENSATION_FAILED`).
 
@@ -38,16 +38,18 @@ Especificación del orquestador de `transfer-service`. Desarrolla §2.3 y ADR-01
 | S8 | `CreditConfirmed`, o `CreditStatus` `CONFIRMED` | Asiento D en origen y C en la cuenta `CLEARING`; consumir la retención; `COMPLETED`; outbox `TransferCompleted` | `COMPLETED` / `DONE` |
 | S9 | `CreditRejected`, o `CreditStatus` `REJECTED` o `CANCELLED` | Registrar `payload.compensation_started_at` y `payload.fail_reason` (`RAIL_REJECTED` o `RAIL_CANCELLED`); `wake_at = now` | `COMPENSATING` |
 | S10 | Inmediatamente tras S9, en una transacción propia; o por el sondeo | Liberar retención; `FAILED` con `failure_reason`; outbox `TransferFailed` con `compensated = true` | `COMPENSATED` / `DONE` |
-| S11 | `wake_at` vencido en `CREDIT_REQUESTED` y `polls < saga.cancel-after-polls` | Outbox `CreditStatusQuery`; `polls + 1`; `wake_at = now + min(base · 2^(polls−1), max)` con `polls` ya incrementado | Sin cambio |
+| S11 | `wake_at` vencido en `CREDIT_REQUESTED` y `polls < saga.cancel-after-polls` | Outbox `CreditStatusQuery`; `polls + 1`; `wake_at = now + min(base · 2^(polls−1), max)` con `polls` ya incrementado. Sin auditoría (§1.4) | Sin cambio |
 | S12 | `wake_at` vencido en `CREDIT_REQUESTED` y `polls >= saga.cancel-after-polls` | Outbox `CreditCancel`; `cancels = 1`; `wake_at = now + base` | `WAITING_REPLY` / `CANCEL_REQUESTED` |
-| S13 | `wake_at` vencido en `CANCEL_REQUESTED` | Outbox `CreditCancel`; `cancels + 1`; `wake_at = now + min(base · 2^(cancels−1), max)` | Sin cambio |
-| S14 | Fallo local al ejecutar cualquier paso (base de datos, no el rail) | En transacción aparte: `attempt + 1`, `last_error`, `wake_at` por backoff local; la transacción del paso se revierte | Sin cambio |
-| S15 | S14 con `attempt = saga.max-attempts` | `COMPENSATION_FAILED`; `payload.resume_status` = estado previo; alerta (§8) | `COMPENSATION_FAILED` |
+| S13 | `wake_at` vencido en `CANCEL_REQUESTED` | Outbox `CreditCancel`; `cancels + 1`; `wake_at = now + min(base · 2^(cancels−1), max)`. Sin auditoría (§1.4) | Sin cambio |
+| S14 | Fallo local al ejecutar un paso del sondeo o del cliente (base de datos, no el rail) | En transacción aparte: `attempt + 1`, `last_error`, `wake_at` por backoff local; la transacción del paso se revierte. Sin auditoría (§1.4) | Sin cambio |
+| S15 | S14 con `attempt = saga.max-attempts` | `COMPENSATION_FAILED`; `payload.resume_status` = estado previo; auditoría `SAGA_COMPENSATION_FAILED` en la misma transacción; alerta (§8) | `COMPENSATION_FAILED` |
 | S16 | Reanudación operativa (§8) | `status = payload.resume_status`; `attempt = 0`; `wake_at = now`; auditoría `SAGA_RESUMED` | El estado previo |
 
 `attempt` cuenta fallos locales consecutivos y vuelve a 0 con cada paso que termina bien. `polls` y `cancels` viven en `payload` y cuentan consultas y cancelaciones al rail; el rail callado no consume `attempt`.
 
-S15 aplica a cualquier paso, no solo a la compensación: una saga cuyo cierre de `tx2` falla de forma permanente termina en `COMPENSATION_FAILED` con la retención intacta, en lugar de reintentarse sin fin.
+S15 aplica a cualquier paso del sondeo o del cliente, no solo a la compensación: una saga cuyo cierre de `tx2` falla de forma permanente termina en `COMPENSATION_FAILED` con la retención intacta, en lugar de reintentarse sin fin.
+
+Un fallo local en un paso disparado por un mensaje (S8, S9) no es S14: el mensaje se reintenta 3 veces y luego va a `rail.replies.v1.dlt` (§4) sin subir `attempt`. La saga sigue en `WAITING_REPLY` y S11 la recupera: al vencer su `wake_at` el sondeo pregunta al rail y la respuesta se vuelve a aplicar.
 
 ## 3. Temporizadores y reintentos
 
@@ -82,7 +84,9 @@ Cronología con los valores por defecto y un rail que no responde: consulta a lo
 | Mismo `event_id` ya procesado | El inbox lo detecta; sin efectos; `inbox.duplicates` |
 | Otro `event_id`, mismo sentido, saga ya en el estado final coherente (por ejemplo `CreditConfirmed` con la saga `COMPLETED`) | Sin cambios; `inbox.duplicates` |
 | Rechazo o cancelación repetidos con la saga `COMPENSATING`, `COMPENSATED` o `COMPENSATION_FAILED` | Sin cambios |
-| `CONFIRMED` con la saga `COMPENSATING`, `COMPENSATED` o `COMPENSATION_FAILED` | Contradicción: sin cambios de estado ni de asientos; registro ERROR y `saga.conflicting_reply`. Se concilia con el rail a mano |
+| `CONFIRMED` con la saga `COMPENSATING` o `COMPENSATED` | Contradicción: sin cambios de estado ni de asientos; registro ERROR y `saga.conflicting_reply`. Se concilia con el rail a mano |
+| `CONFIRMED` con la saga `COMPENSATION_FAILED` y `payload.resume_status = COMPENSATING` | La misma contradicción: ya se compensaba |
+| Cualquier respuesta con la saga `COMPENSATION_FAILED` detenida antes de compensar (`payload.resume_status` distinto de `COMPENSATING`, p. ej. `WAITING_REPLY`) | No es una contradicción: se registra en el inbox, sin cambios y con un WARN, y no cuenta `saga.conflicting_reply`. La resuelve el sondeo: tras la reanudación (S16) consulta al rail (S11) |
 | `REJECTED`, `CANCELLED` o `CreditRejected` con la saga `COMPLETED` | La misma contradicción |
 | `CreditStatus` `UNKNOWN` | Se registra en el inbox; sin cambio de estado: manda el siguiente `wake_at` |
 
@@ -93,7 +97,7 @@ Cronología con los valores por defecto y un rail que no responde: consulta a lo
 - Solo sobre `IN_REVIEW`; en otro caso, 409 `review-not-pending`. Transferencia inexistente: 404 `transfer-not-found`.
 - La transición se condiciona a `status = 'IN_REVIEW'` y a `version`: con dos analistas a la vez, uno recibe 200 y el otro 409.
 - `APPROVE` reanuda como S4 o S5. `REJECT` es S7.
-- Auditoría `TRANSFER_REVIEWED` en la misma transacción, con `decision` y `comment` en `detail`. El actor es el `client_id` del canal resuelto por la API key: el diseño solo prevé identidad por canal (§1.3).
+- Auditoría `TRANSFER_REVIEWED` en la misma transacción, con `decision` y `comment` en `detail`. El actor de auditoría es `channel:<client_id>`, con el `client_id` del canal resuelto por la API key (el mismo formato de las demás filas de auditoría): el diseño solo prevé identidad por canal (§1.3).
 - La saga en `IN_REVIEW` no tiene `wake_at` y no cuenta como detenida: espera a una persona.
 
 ## 7. Sondeo y rescate
@@ -125,7 +129,7 @@ Micrometer, visibles en `/actuator/metrics/<nombre>`.
 
 `updated_at` de `saga_state` se actualiza en cada transición.
 
-**Reanudación operativa.** `POST /internal/v1/sagas/{id}/resume` (solo red interna, con API key) aplica S16 a una saga `COMPENSATION_FAILED`: 200 con el estado resultante, 404 `not-found` si no existe, 409 `saga-not-resumable` si está en otro estado. La reanudación es de lo que falló, no de la causa: si el fallo persiste, vuelve a `COMPENSATION_FAILED` tras `saga.max-attempts` intentos.
+**Reanudación operativa.** `POST /internal/v1/sagas/{id}/resume` (exige API key, la misma validación que `/api/**`; el aislamiento de red es de despliegue y no lo impone el servicio) aplica S16 a una saga `COMPENSATION_FAILED`: 200 con el estado resultante, 404 `not-found` si no existe, 409 `saga-not-resumable` si está en otro estado. La reanudación es de lo que falló, no de la causa: si el fallo persiste, vuelve a `COMPENSATION_FAILED` tras `saga.max-attempts` intentos.
 
 ## 9. Cobertura de pruebas
 
