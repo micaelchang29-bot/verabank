@@ -9,8 +9,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from verabank_sim.amlgen.config import load_config
 from verabank_sim.amlgen.coverage import rule_coverage
 from verabank_sim.amlgen.generate import TYPOLOGIES, generate
 
@@ -30,7 +29,7 @@ def _dumps(obj: Any) -> bytes:
 
 def build(config_path: Path, seed: int, out: Path) -> dict[str, Any]:
     raw = config_path.read_bytes()
-    cfg = yaml.safe_load(raw)
+    cfg, countries = load_config(config_path)
     gen = generate(cfg, seed)
     out.mkdir(parents=True, exist_ok=True)
     files = {
@@ -43,6 +42,7 @@ def build(config_path: Path, seed: int, out: Path) -> dict[str, Any]:
     manifest = {
         "seed": seed,
         "config_sha256": hashlib.sha256(raw).hexdigest(),
+        "risk_countries": countries,
         "transfer_id_scheme": "uuid5(NS, '<seed>:t:<i>'), i = posición en el orden barajado con la semilla",
         "sim_epoch": cfg["sim_epoch"],
         "days": cfg["days"],

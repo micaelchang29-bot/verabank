@@ -31,10 +31,14 @@ background:
   transfer_types: {TRANSFER: 0.60, PAYMENT: 0.25, CASH_OUT: 0.10, DEBIT: 0.05}
 
 # Países de riesgo para COUNTRY_RISK.
-# ILUSTRATIVOS: no son la lista vigente del GAFI/FATF. Vigencia: la lista real (con fuente y fechas de
-# vigencia, risk.country_risk) se carga en la fase 4; revisar estos códigos cuando se haga.
+# `high`: la lista REAL del GAFI/FATF, nivel HIGH de db/seed/country_risk.csv («High-Risk Jurisdictions subject to a
+# Call for Action», publicada el 2026-10-30), la misma que carga `make load-country-risk`. La ruta es relativa a este
+# archivo y la fecha de vigencia queda en data/aml/manifest.json. Al cambiar la lista, regenerar con `make amlgen`.
+# `watch`: SY, YE y HT son ilustrativos de la vigilancia, pero los tres están en el nivel WATCH de esa misma lista (una
+# prueba lo comprueba); no se sustituyen por los 18 del nivel WATCH para no cambiar el generador.
 risk_countries:
-  high: [KP, IR, MM]
+  high_from: ../db/seed/country_risk.csv
+  high_level: HIGH
   watch: [SY, YE, HT]
 
 typologies:

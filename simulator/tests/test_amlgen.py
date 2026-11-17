@@ -14,10 +14,12 @@ from jsonschema import Draft202012Validator, FormatChecker
 import uuid
 
 from verabank_sim.amlgen.cli import DEFAULT_CONFIG, build
+from verabank_sim.amlgen.config import load_config, read_risk_countries
 from verabank_sim.amlgen.generate import NS, TYPOLOGIES
 
 ROOT = Path(__file__).resolve().parents[2]
-CFG = yaml.safe_load(DEFAULT_CONFIG.read_text())
+CFG, PROVENANCE = load_config(DEFAULT_CONFIG)
+COUNTRY_CSV = ROOT / "db" / "seed" / "country_risk.csv"
 T = Decimal(str(CFG["threshold"]))
 HOME = CFG["background"]["home_country"]
 
@@ -199,3 +201,48 @@ def test_cuerpo_valido_contra_openapi(run: dict) -> None:
         errors = list(validator.iter_errors(body))
         assert not errors, (t, errors[0].message)
         assert set(body) <= body_keys
+
+
+# --- lista real de países de riesgo (db/seed/country_risk.csv) -------------------------------------------------------
+
+
+def test_los_paises_altos_son_los_del_csv_del_gafi() -> None:
+    codes, list_date, _ = read_risk_countries(COUNTRY_CSV, "HIGH")
+    assert CFG["risk_countries"]["high"] == codes == ["IR", "KP", "MM"]
+    assert list_date == "2026-10-30"
+    assert "high" not in yaml.safe_load(DEFAULT_CONFIG.read_text())["risk_countries"]   # el yaml no repite los códigos
+
+
+def test_los_paises_de_vigilancia_estan_en_la_lista_real() -> None:
+    watch, _, _ = read_risk_countries(COUNTRY_CSV, "WATCH")
+    assert set(CFG["risk_countries"]["watch"]) <= set(watch)
+    high, _, _ = read_risk_countries(COUNTRY_CSV, "HIGH")
+    assert not set(high) & set(watch)
+
+
+def test_el_manifiesto_registra_la_procedencia_de_la_lista(run: dict) -> None:
+    prov = run["manifest"]["risk_countries"]
+    assert prov["source"] == "../db/seed/country_risk.csv"
+    assert prov["level"] == "HIGH" and prov["list_date"] == "2026-10-30"
+    assert prov["high"] == ["IR", "KP", "MM"] and prov["watch"] == ["SY", "YE", "HT"]
+    assert prov["csv_sha256"] == __import__("hashlib").sha256(COUNTRY_CSV.read_bytes()).hexdigest()
+
+
+def test_las_transferencias_a_paises_de_riesgo_usan_solo_la_lista_real(run: dict) -> None:
+    listed = set(CFG["risk_countries"]["high"]) | set(CFG["risk_countries"]["watch"])
+    risky = {t["dest_country"] for t in run["transfers"]} & (listed | {"KP", "IR", "MM", "SY", "YE", "HT"})
+    assert risky <= listed
+    assert {"IR", "KP", "MM"} & risky   # la tipología COUNTRY_RISK usa la lista real
+
+
+def test_una_lista_con_fechas_mezcladas_o_codigos_malos_se_rechaza(tmp_path: Path) -> None:
+    header = "country,level,source,list_date\n"
+    mixed = tmp_path / "mixed.csv"
+    mixed.write_text(header + "IR,HIGH,u,2026-10-30\nKP,HIGH,u,2026-02-01\n")
+    bad = tmp_path / "bad.csv"
+    bad.write_text(header + "IRN,HIGH,u,2026-10-30\n")
+    dup = tmp_path / "dup.csv"
+    dup.write_text(header + "IR,HIGH,u,2026-10-30\nIR,HIGH,u,2026-10-30\n")
+    for path in (mixed, bad, dup):
+        with pytest.raises(ValueError):
+            read_risk_countries(path, "HIGH")

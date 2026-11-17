@@ -210,7 +210,12 @@ parámetros y misma semilla dan los mismos archivos byte a byte.
   independiente de §5a (parámetros en la sección `rules` del YAML; no se ajustan para ayudar a las reglas).
   `FAN_IN` se calcula pero va marcada `in_scope: false` (fuera del corte de alcance). `FAST_PASS` no tiene regla
   en §5a: `rule: null` y 0 %. Es una estimación sobre estos datos, no el recall medido del servicio.
-- Los códigos de `risk_countries` son ilustrativos, no la lista vigente del GAFI: la real se carga en la fase 4.
+- Los países de nivel alto de `COUNTRY_RISK` salen de `db/seed/country_risk.csv`, nivel `HIGH`: la lista real del GAFI/FATF
+  del 2026-10-30, la misma que carga `make load-country-risk`. El manifiesto registra su procedencia (`risk_countries`:
+  ruta, fecha, SHA-256 del CSV y códigos). Los de vigilancia (`SY`, `YE`, `HT`) siguen siendo los del YAML, y una prueba
+  comprueba que están en el nivel `WATCH` de la lista real. Sustituir los códigos ilustrativos por la lista real dejó
+  la verdad de terreno y la cobertura estimada iguales (el conjunto `IR`, `KP`, `MM` es el mismo) y cambió solo el país
+  asignado a cada transferencia de `COUNTRY_RISK`, porque el CSV trae los códigos en otro orden.
 - `sim_epoch` está duplicado de `ml/config.yaml` (una prueba comprueba que coinciden). Los `uuid` de cuentas son
   deterministas y sintéticos: la fase 4 debe sembrar esas cuentas (con saldo) antes de reproducir.
 - Los destinos `COUNTRY_RISK` y `FAST_PASS` (salida) usan rail `EXTERNAL`; el resto, `INTERNAL`.
