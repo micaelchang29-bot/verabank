@@ -1,10 +1,32 @@
 {
   "artifacts": {
     "model.onnx": {
-      "sha256": "c794f3d619a7a2934263c2ce92e63e4ec3577cfcb5e3878d43c1ec8efb20ec99"
+      "sha256": "c794f3d619a7a2934263c2ce92e63e4ec3577cfcb5e3878d43c1ec8efb20ec99",
+      "opset_imports": [
+        {
+          "domain": "ai.onnx.ml",
+          "version": 1
+        }
+      ],
+      "ir_version": 8
     },
     "shadow.onnx": {
-      "sha256": "0e2711161376b69d976e6e99734e23524a206f6c5ceda091ca954bf5920ed102"
+      "sha256": "0e2711161376b69d976e6e99734e23524a206f6c5ceda091ca954bf5920ed102",
+      "opset_imports": [
+        {
+          "domain": "ai.onnx.ml",
+          "version": 1
+        },
+        {
+          "domain": "ai.onnx",
+          "version": 15
+        },
+        {
+          "domain": "ai.onnx",
+          "version": 15
+        }
+      ],
+      "ir_version": 8
     },
     "thresholds.json": {
       "sha256": "f7d816074d5e0b4e81c7d098ba6ff8f6a901461bacde7e8c7361c36ce307414d"
@@ -26,6 +48,7 @@
       "family": "logreg"
     }
   },
+  "onnxruntime_version": "1.32.0",
   "model_io": {
     "input_name": "features",
     "input_type": "float32 [None, n_features] en el orden de thresholds.json:feature_order",

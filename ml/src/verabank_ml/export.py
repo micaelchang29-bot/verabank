@@ -9,6 +9,8 @@ import mlflow
 import mlflow.sklearn
 import mlflow.xgboost
 import numpy as np
+import onnx
+import onnxruntime as ort
 import pandas as pd
 
 from verabank_ml import golden, modeling, tracking
@@ -33,9 +35,22 @@ HISTORY_PARTITIONS = (
     "valid",
 )  # el historial de un caso de valid nunca llega a test
 
+MODEL_KEYS = ("registered_model", "version", "family")
+
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def onnx_header(payload: bytes) -> dict:
+    """`opset_imports` e `ir_version` leídos del propio archivo ONNX (no de la constante de exportación)."""
+    model = onnx.load_from_string(payload)
+    return {
+        "opset_imports": [
+            {"domain": o.domain or "ai.onnx", "version": o.version} for o in model.opset_import
+        ],
+        "ir_version": model.ir_version,
+    }
 
 
 def load_alias(client, cfg: dict, alias: str):
@@ -87,6 +102,7 @@ def export_command(argv: list[str]) -> int:
         (ARTIFACTS / filename).write_bytes(payload)
         onnx_files[filename] = {
             "sha256": sha256_bytes(payload),
+            **onnx_header(payload),
             "registered_model": name,
             "version": version,
             "family": family,
@@ -192,14 +208,18 @@ def export_command(argv: list[str]) -> int:
     thresholds_bytes = THRESHOLDS_PATH.read_bytes()
     manifest = {
         "artifacts": {
-            **{k: {"sha256": v["sha256"]} for k, v in onnx_files.items()},
+            **{
+                k: {f: v[f] for f in ("sha256", "opset_imports", "ir_version")}
+                for k, v in onnx_files.items()
+            },
             "thresholds.json": {"sha256": sha256_bytes(thresholds_bytes)},
             "golden.jsonl": {"sha256": sha256_bytes(GOLDEN_PATH.read_bytes()), "cases": len(cases)},
         },
         "models": {
-            "champion": {k: v for k, v in onnx_files["model.onnx"].items() if k != "sha256"},
-            "challenger": {k: v for k, v in onnx_files["shadow.onnx"].items() if k != "sha256"},
+            "champion": {k: onnx_files["model.onnx"][k] for k in MODEL_KEYS},
+            "challenger": {k: onnx_files["shadow.onnx"][k] for k in MODEL_KEYS},
         },
+        "onnxruntime_version": ort.__version__,
         "model_io": {
             "input_name": INPUT_NAME,
             "input_type": "float32 [None, n_features] en el orden de thresholds.json:feature_order",

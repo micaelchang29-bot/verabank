@@ -186,6 +186,19 @@ def test_manifest_matches_the_files(manifest):
     assert manifest["inputs"]["contracts/features.yaml"] == sha256(CONTRACT_PATH)
 
 
+def test_manifest_records_the_real_onnx_opsets_ir_and_runtime_version(manifest):
+    import onnx
+
+    assert manifest["onnxruntime_version"] == ort.__version__
+    for name in ("model.onnx", "shadow.onnx"):
+        model = onnx.load(str(ARTIFACTS / name))
+        entry = manifest["artifacts"][name]
+        assert entry["ir_version"] == model.ir_version, name
+        declared = {(o["domain"], o["version"]) for o in entry["opset_imports"]}
+        assert declared == {(o.domain or "ai.onnx", o.version) for o in model.opset_import}, name
+        assert len(entry["opset_imports"]) == len(model.opset_import), name
+
+
 def test_manifest_and_thresholds_agree_on_the_champion(manifest, thresholds):
     champion = manifest["models"]["champion"]
     assert thresholds["model_version"] == f"{champion['registered_model']}/{champion['version']}"
