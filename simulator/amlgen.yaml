@@ -1,0 +1,82 @@
+# Parámetros del generador AML `amlgen` (docs/diseno.md §5a). TODOS los valores son supuestos de negocio.
+# Los parámetros de cada tipología son deliberadamente más amplios que los de las reglas (sección
+# `rules`): las variantes lentas o de montos bajos escapan y el recall de las reglas queda por debajo
+# de 100 %. No se ajustan para «ayudar» a las reglas.
+
+# Instante de inicio de la simulación (UTC). Es el `sim_epoch` de ml/config.yaml: duplicado aquí a
+# propósito (el simulador no depende de ml/); una prueba comprueba que ambos coinciden.
+sim_epoch: "2026-01-01T00:00:00Z"
+days: 30
+accounts: 5000
+currency: PEN
+# Umbral de reporte (§5a, regla THRESHOLD) sobre el que se expresan los montos «cercanos al umbral».
+threshold: 10000
+
+# Fondo legítimo.
+background:
+  # Transferencias legítimas por cuenta y día (≈ 30.000 en total con los valores por defecto).
+  per_account_per_day: 0.2
+  # Monto lognormal: ln(monto) ~ N(mu, sigma). Mediana ≈ 148, cola alta rara.
+  amount_mu: 5.0
+  amount_sigma: 1.2
+  amount_min: 1.00
+  # Fracción de operaciones legítimas con monto cercano al umbral (ruido que no es AML).
+  near_threshold_share: 0.02
+  near_threshold_pct: [0.70, 0.99]       # fracción del umbral
+  # Fracción por rail EXTERNAL (con país de destino de esta lista; ninguno es de riesgo).
+  external_share: 0.15
+  external_countries: [US, ES, CL, CO, MX, BR]
+  home_country: PE                       # país de destino de las transferencias INTERNAL
+  # Peso de cada tipo de transferencia del contrato (TransferType).
+  transfer_types: {TRANSFER: 0.60, PAYMENT: 0.25, CASH_OUT: 0.10, DEBIT: 0.05}
+
+# Países de riesgo para COUNTRY_RISK.
+# ILUSTRATIVOS: no son la lista vigente del GAFI/FATF. Vigencia: la lista real (con fuente y fechas de
+# vigencia, risk.country_risk) se carga en la fase 4; revisar estos códigos cuando se haga.
+risk_countries:
+  high: [KP, IR, MM]
+  watch: [SY, YE, HT]
+
+typologies:
+  # Fraccionamiento: una cuenta divide un monto en varias transferencias bajo el umbral.
+  STRUCTURING:
+    instances: 40
+    transfers: [3, 8]
+    span_days: [1, 5]            # días entre la primera y la última (enteros)
+    amount_pct: [0.70, 0.99]     # fracción del umbral
+  # Transferencias a un destino de un país de la lista (alto o vigilancia), montos log-uniformes.
+  COUNTRY_RISK:
+    instances: 60
+    transfers: [1, 3]
+    span_days: [0, 3]
+    amount_range: [200, 20000]
+  # Muchos emisores distintos hacia un mismo destino en 24 h.
+  FAN_IN:
+    instances: 20
+    senders: [8, 20]
+    window_hours: 24
+    amount_range: [200, 1500]    # uniforme por emisor
+  # Paso rápido: una cuenta recibe un monto alto y reenvía casi todo enseguida (sin regla en §5a).
+  FAST_PASS:
+    instances: 30
+    amount_range: [5000, 50000]  # log-uniforme
+    forward_pct: [0.90, 0.99]
+    forward_delay_minutes: [5, 119]   # < 2 h
+
+# Copia mínima de las condiciones de §5a (risk.aml_rules), SOLO para estimar en el manifiesto qué
+# porcentaje de instancias dispararía la regla. Es una implementación independiente de la del servicio.
+rules:
+  STRUCTURING:
+    window_hours: 24
+    min_count: 3
+    pct_range: [0.70, 1.00]      # fracción del umbral, extremos incluidos
+    min_sum: 10000
+  COUNTRY_RISK:
+    high_min_amount: 1000
+    watch_min_amount: 5000
+  # FAN_IN queda fuera del corte de alcance: se calcula igual y se marca «fuera de alcance».
+  FAN_IN:
+    in_scope: false
+    window_hours: 24
+    min_senders: 10
+    min_sum: 10000

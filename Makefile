@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export amlgen
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -88,3 +88,9 @@ ml-report: ## Ablación B (solo valid) y ml/reports/model-report.md
 
 ml-export: ## ONNX del champion y del challenger, golden.jsonl, thresholds.json y manifest.json (ml/artifacts/)
 	@uv run --project ml --frozen python -m verabank_ml export
+
+# Generador AML con verdad de terreno (simulator/amlgen.yaml; salida en data/aml, ignorada por Git).
+SEED ?= 42
+
+amlgen: ## Genera data/aml/{transfers,ground_truth}.jsonl y manifest.json: make amlgen [SEED=42]
+	@cd simulator && uv run python -m verabank_sim amlgen --seed $(SEED) --out ../data/aml

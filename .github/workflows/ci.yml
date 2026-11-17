@@ -59,7 +59,7 @@ jobs:
           retention-days: 7
 
   simulator:
-    name: simulador (pruebas unitarias del rail)
+    name: simulador (pruebas unitarias: rail, chaos y amlgen)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
