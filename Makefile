@@ -2,10 +2,16 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk db-grants seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk db-grants seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
+
+up: ## Todo en Compose: core + risk + sim (transfer-service remoto, risk-scoring, risk-stream, rail), migraciones y semillas
+	@scripts/up.sh
+
+down: ## Detiene todo el Compose (conserva los volúmenes)
+	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim down
 
 up-core: ## Compose (perfil core), tópicos, transfer-service en SERVER_PORT (8081) y semilla
 	@scripts/up-core.sh
@@ -16,7 +22,7 @@ stop-core: ## Detiene transfer-service
 down-core: stop-core ## Detiene transfer-service y el compose (conserva los volúmenes)
 	@# down no necesita las contraseñas, pero Compose interpola docker-compose.yml entero y las exige: con valores
 	@# ficticios solo aquí, la limpieza funciona aunque .env esté incompleto o el arranque haya fallado.
-	@RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" docker compose --profile core down
+	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim down
 
 test-core: ## Compila y prueba transfer-service (JUnit 5 + Testcontainers)
 	@cd transfer-service && ./mvnw -B verify
@@ -125,9 +131,17 @@ build-risk: ## Imagen verabank/risk-service:dev (contexto: la raíz, por ml/arti
 N ?= 20000
 TPS ?= 50
 AMOUNT_FACTOR ?= 1
+DURATION ?= 5m
+PEAK ?= 0
 
 replay: ## Replay de PaySim (partición de prueba): make replay N=20000 TPS=50 [AMOUNT_FACTOR=1]
 	@scripts/sim.sh replay --n $(N) --tps $(TPS) --amount-factor $(AMOUNT_FACTOR)
+
+fallback-demo: ## Para risk-scoring, replay N=500 (todo FALLBACK) y comprueba que al volver vuelve MODEL
+	@scripts/fallback-demo.sh
+
+perf-scoring: ## k6 contra risk-scoring (50 TPS, DURATION=5m; PEAK=1 añade 100 TPS): make perf-scoring [DURATION=30m] [PEAK=1]
+	@DURATION=$(DURATION) PEAK=$(PEAK) scripts/perf-scoring.sh
 
 aml-run: ## Envía data/aml/transfers.jsonl por la API y aprueba las revisiones: make aml-run [TPS=50]
 	@scripts/sim.sh aml --in ../data/aml/transfers.jsonl --tps $(TPS) --approve-reviews
