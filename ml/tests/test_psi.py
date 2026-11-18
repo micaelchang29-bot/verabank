@@ -332,3 +332,18 @@ def test_artifact_reference_belongs_to_the_current_champion_and_is_in_the_manife
     assert ref["partition"] == "train" and ref["train_steps"][1] <= 400
     for spec in [*ref["features"].values(), ref["score"]]:
         assert len(spec["expected"]) == spec["n_bins"] and min(spec["expected"]) >= 1e-4
+
+
+# --- humo de la CI (D11) ----------------------------------------------------------------------------------------
+
+
+def test_ci_smoke_runs_the_pipeline_on_a_synthetic_sample(tmp_path):
+    from verabank_ml import smoke
+
+    sample = smoke.synthetic_paysim(200, seed=1)
+    assert list(sample.columns) == smoke.COLUMNS and sample["step"].is_monotonic_increasing
+    result = smoke.run(20_000, tmp_path)
+    assert set(result["models"]) == {"logreg", "xgb"}
+    for m in result["models"].values():
+        assert m["onnx_parity"] < 1e-5 and 0 <= m["t_review"] <= m["t_block"] <= 1
+    assert (tmp_path / "xgb.onnx").exists() and not (tmp_path / "manifest.json").exists()
