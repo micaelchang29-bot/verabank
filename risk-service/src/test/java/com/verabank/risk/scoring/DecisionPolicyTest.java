@@ -76,6 +76,28 @@ class DecisionPolicyTest {
         }
     }
 
+    /**
+     * Umbrales escritos a mano, a propósito, y no leídos de thresholds.json: la duplicación es deliberada. Los demás
+     * casos de esta clase toman los umbrales del mismo archivo que el servicio, así que un valor alterado allí (con su
+     * suma de verificación al día en manifest.json) los movería a la vez. Estos valores son los de thresholds.json,
+     * ml/reports/valid_metrics.json y ml/reports/test_evaluation.json (t_review 0,83142; t_block 0,9038). Si se
+     * reentrena y cambian, hay que actualizarlos aquí a propósito.
+     */
+    @Test
+    void literalThresholdsGiveInclusiveBoundariesAndMatchThresholdsJson() throws Exception {
+        BigDecimal review = new BigDecimal("0.83142");
+        BigDecimal block = new BigDecimal("0.9038");
+        Pair literal = new Pair("literales", review, block);
+        assertThat(pairs().get(0).review()).as("t_review de thresholds.json").isEqualByComparingTo(review);
+        assertThat(pairs().get(0).block()).as("t_block de thresholds.json").isEqualByComparingTo(block);
+        assertThat(decide(literal, new BigDecimal("0.83141"))).isEqualTo(Decision.APPROVE);
+        assertThat(decide(literal, review)).isEqualTo(Decision.REVIEW);
+        assertThat(decide(literal, new BigDecimal("0.83143"))).isEqualTo(Decision.REVIEW);
+        assertThat(decide(literal, new BigDecimal("0.90379"))).isEqualTo(Decision.REVIEW);
+        assertThat(decide(literal, block)).isEqualTo(Decision.BLOCK);
+        assertThat(decide(literal, new BigDecimal("0.90381"))).isEqualTo(Decision.BLOCK);
+    }
+
     @Test
     void ties_round_half_even_on_the_exact_double_like_python() {
         // 0.015625 = 1/64 es exacto en binario: el 6.º decimal es 5 y no hay más. Python: round(0.015625, 5) = 0.01562.
