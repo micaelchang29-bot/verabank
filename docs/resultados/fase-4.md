@@ -33,7 +33,7 @@ Parámetros: partición de prueba, pasos 575 a 590, `AMOUNT_FACTOR=1`, calentami
 | `BLOCK` | 53 | 76 | 129 |
 | Total | 19.831 | 169 | 20.000 |
 
-Comparación con `ml/reports/test_evaluation.json` (partición de test completa, 124.990 filas, modelo `fraud-xgb/4` con los mismos umbrales `t_review = 0,83142` y `t_block = 0,9038`) y con las **mismas 20.000 filas puntuadas fuera de línea con historia completa** (el pipeline de `ml/`, con las features de `data/features/features_A.parquet`):
+Comparación con `ml/reports/test_evaluation.json` (partición de test completa, 124.990 filas, modelo `fraud-xgb/4`; el servicio sirve `fraud-xgb/6`, que tiene el mismo `model_sha256` (reentrenamiento determinista, ver ADR-11), con los mismos umbrales `t_review = 0,83142` y `t_block = 0,9038`) y con las **mismas 20.000 filas puntuadas fuera de línea con historia completa** (el pipeline de `ml/`, con las features de `data/features/features_A.parquet`):
 
 | Métrica | `test_evaluation.json` (test completo) | Mismas 20.000 filas, fuera de línea | Replay (servicio) |
 |---|---:|---:|---:|
