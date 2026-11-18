@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures ml-psi-ref psi ml-reasons retrain retrain-check promote rollback drift-demo amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed load-seed load-transfers reconcile-full pg-restart-test bi-init bi-up bi-check bi-url test-bi
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures ml-psi-ref psi ml-reasons retrain retrain-check promote rollback drift-demo amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed smoke load-seed load-transfers reconcile-full pg-restart-test bi-init bi-up bi-check bi-url test-bi
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -208,6 +208,7 @@ test-bi: ## Pruebas de bi/ (parser de docs/kpis.sql e idempotencia del script, A
 
 # Carga T-17 (fase 5, D10; docs/resultados/fase-5.md). No corre en la CI.
 ACCOUNTS ?= 5000
+KIND ?= 0
 
 load-seed: ## Cuentas de la carga: ACCOUNTS orígenes con saldo alto y 2.000 destinos internos (asientos desde CLEARING)
 	@scripts/sim.sh load-seed --accounts $(ACCOUNTS) --destinations 2000
@@ -220,6 +221,9 @@ reconcile-full: ## Conciliación de §7 + Σ D = Σ C por transferencia + abiert
 
 pg-restart-test: ## 4.G(c): reinicia PostgreSQL con carga baja; errores mientras cae y tiempo hasta normalizar
 	@scripts/pg-restart-test.sh
+
+smoke: ## Humo E2E: readiness, INTERNAL y EXTERNAL COMPLETED, idempotencia, MODEL, alerta THRESHOLD, reconcile [KIND=1]
+	@KIND=$(KIND) scripts/smoke.sh
 
 fallback-demo: ## Para risk-scoring, replay N=500 (todo FALLBACK) y comprueba que al volver vuelve MODEL
 	@scripts/fallback-demo.sh

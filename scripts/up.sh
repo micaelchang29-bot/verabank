@@ -11,8 +11,12 @@ if service_running; then
   "$ROOT/scripts/stop-service.sh"
 fi
 
-echo "== imágenes"
-"${COMPOSE_ALL[@]}" build risk-scoring transfer-service rail-sim
+if [[ "${VERABANK_SKIP_BUILD:-0}" == 1 ]]; then
+  echo "== imágenes: VERABANK_SKIP_BUILD=1, se usan las ya construidas (la CI las construye con caché de capas)"
+else
+  echo "== imágenes"
+  "${COMPOSE_ALL[@]}" build risk-scoring transfer-service rail-sim
+fi
 
 echo "== PostgreSQL, Kafka y tópicos"
 "${COMPOSE_ALL[@]}" up -d --wait postgres kafka
