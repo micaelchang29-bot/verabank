@@ -6,6 +6,7 @@ Para añadir un subcomando, registra una función `(argv: list[str]) -> int` en 
 import sys
 from collections.abc import Callable, Sequence
 
+from verabank_ml.clock_guard import clock_guard_command
 from verabank_ml.eval_test import eval_test_command
 from verabank_ml.export import export_command
 from verabank_ml.features import features_command
@@ -20,6 +21,7 @@ from verabank_ml.smoke import smoke_command
 from verabank_ml.train import train_command
 
 COMMANDS: dict[str, Callable[[list[str]], int]] = {
+    "clock-guard": clock_guard_command,
     "check-paysim": check_paysim,
     "eval-test": eval_test_command,
     "export": export_command,

@@ -36,7 +36,7 @@ import pandas as pd
 import yaml
 from mlflow.exceptions import MlflowException
 
-from verabank_ml import metrics, modeling
+from verabank_ml import clock_guard, metrics, modeling
 from verabank_ml.features import REPO_ROOT, load_config
 
 RETRAIN_CONFIG = REPO_ROOT / "ml" / "retrain.yaml"
@@ -326,11 +326,11 @@ def rollback(registry: Registry, reexport: Callable[[], None]) -> dict:
 
 
 def reexport_all() -> None:
-    """ml-export y ml-psi-ref (la referencia del PSI depende del champion)."""
+    """ml-export y ml-psi-ref (las dos referencias del PSI dependen del champion; la de valid hereda el top-5 de train)."""
     from verabank_ml.export import export_command
     from verabank_ml.monitor.reference import psi_reference_command
 
-    if export_command([]) != 0 or psi_reference_command([]) != 0:
+    if export_command([]) != 0 or psi_reference_command([]) != 0 or psi_reference_command(["--partition", "valid"]) != 0:
         raise RuntimeError("la reexportación falló")
 
 
@@ -344,8 +344,9 @@ WHERE s.model_version <> 'warmup' AND s.source_ref NOT LIKE 'perf-%'
 """
 MAX_REAL = "SELECT max(occurred_at) FROM risk.scoring_log WHERE model_version <> 'warmup' AND source_ref NOT LIKE 'perf-%'"
 LATEST_ALERTS = """
-SELECT feature FROM analytics.drift_metrics
-WHERE window_start = (SELECT max(window_start) FROM analytics.drift_metrics) AND alert ORDER BY feature
+SELECT DISTINCT feature FROM analytics.drift_metrics d
+WHERE alert AND window_start = (SELECT max(window_start) FROM analytics.drift_metrics WHERE reference = d.reference)
+ORDER BY feature
 """
 
 
@@ -445,6 +446,7 @@ def retrain_command(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="python -m verabank_ml retrain", description="reentrenamiento (D7)")
     parser.add_argument("--reason", choices=["drift", "recall", "schedule", "manual"], default="manual")
     parser.add_argument("--check", action="store_true", help="solo evalúa los disparadores")
+    parser.add_argument("--force", action="store_true", help="salta la guarda del reloj simulado (clock-guard)")
     args = parser.parse_args(argv)
     rcfg = load_retrain_config()
     cfg, client, champion, champ_t, _, _ = champion_context()
@@ -452,6 +454,10 @@ def retrain_command(argv: list[str]) -> int:
     names = champ_t["feature_order"]
     try:
         with _connect() as conn:
+            try:
+                clock_guard.check(conn, epoch, args.force)
+            except clock_guard.OutsideSimulatedClock as exc:
+                raise Refused(str(exc)) from exc
             rows, max_at = read_labeled(conn)
             alerts = [r[0] for r in conn.execute(LATEST_ALERTS).fetchall()]
         if args.check:
