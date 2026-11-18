@@ -339,3 +339,27 @@ def test_reset_data_with_confirm_yes_removes_the_volumes(tmp_path: Path) -> None
     assert done.returncode == 0, done.stderr
     down = [line for line in calls.read_text().splitlines() if " down " in f" {line} "]
     assert down and "-v" in down[0].split() and "--remove-orphans" in down[0].split()
+
+
+# --- load-seed (5.G) -------------------------------------------------------------------------------------------------
+
+
+def test_load_seed_ids_match_postgres_md5_uuid_and_perf_transfers_js():
+    import hashlib
+
+    from verabank_sim.load import loadseed
+
+    assert loadseed.seed_uuid("verabank-load:src:0") == str(uuid_from_md5("verabank-load:src:0"))
+    accounts = loadseed.plan(5, 3, loadseed.Decimal("1000.00"))
+    assert len(accounts) == 8 and len({a.account_id for a in accounts}) == 8
+    assert [str(a.balance) for a in accounts] == ["1000.00"] * 5 + ["0.00"] * 3
+    js = (ROOT / "perf" / "transfers.js").read_text()
+    assert "verabank-load:src:${pick(ACCOUNTS)}" in js and "verabank-load:dst:${pick(DESTINATIONS)}" in js
+    assert hashlib.md5(b"x").hexdigest()  # k6 usa crypto.md5(label, 'hex'), igual que md5(label)::uuid
+
+
+def uuid_from_md5(label: str):
+    import hashlib
+    import uuid
+
+    return uuid.UUID(hashlib.md5(label.encode()).hexdigest())

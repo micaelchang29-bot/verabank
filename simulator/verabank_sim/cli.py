@@ -20,6 +20,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "replay": ("verabank_sim.replay.cli", "reproduce la partición de prueba de PaySim por la API (D1, D10, D11)"),
     "aml": ("verabank_sim.aml.cli", "envía data/aml/transfers.jsonl por la API y aprueba las revisiones (D12)"),
     "aml-eval": ("verabank_sim.aml.eval_cli", "evalúa las alertas AML contra la verdad de terreno de amlgen (D12)"),
+    "load-seed": ("verabank_sim.load.loadseed", "cuentas de la prueba de carga T-17 (orígenes con saldo y destinos internos)"),
     "settle": ("verabank_sim.settle", "espera a que no queden transferencias abiertas; aprueba las revisiones si se pide"),
     "watch": ("verabank_sim.watch", "vigila el latido del simulador mientras chaos espera (lo usa make chaos-rail)"),
 }
