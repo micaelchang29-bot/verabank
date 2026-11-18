@@ -4,11 +4,13 @@ Mediciones propias de la corrida de aceptación del 2026-11-17, en la laptop de 
 
 Hubo dos pasadas. La **primera** se hizo antes del calentamiento de arranque de `risk-scoring` y `transfer-service`. La **segunda**, sobre una base y un Kafka nuevos (volúmenes borrados con confirmación), con el calentamiento. Las dos se conservan. Las cifras salen de `data/replay/summary.json`, `data/perf/` y las salidas de `make`, sin estimaciones.
 
+**Primera pasada: no reproducible: cifras reportadas en su momento, base descartada.** Sus cifras (la columna «primera pasada» de las tablas a, c y d, las filas «Primera» de b y los dos primeros renglones de memoria) son las reportadas en su momento; la base y Kafka se descartaron y no hay archivos de respaldo para recomprobarlas. Solo la segunda pasada se auditó contra `data/replay/summary.json`, `data/perf/` y SQL.
+
 ## a. Replay de PaySim (`make replay N=20000 TPS=50`)
 
 Parámetros: partición de prueba, pasos 575 a 590, `AMOUNT_FACTOR=1`, calentamiento de 26.503 filas (`COPY`), 20.000 cuentas sembradas.
 
-| Dato | Primera pasada (arranque en frío) | Segunda pasada (con calentamiento) |
+| Dato | Primera pasada (arranque en frío; no reproducible) | Segunda pasada (con calentamiento) |
 |---|---|---|
 | Enviadas / duración / TPS | 20.000 / 405,8 s / 49,28 | 20.000 / 404,0 s / 49,50 |
 | Código HTTP | `201`: 19.873; `422`: 127 | `201`: 19.871; `422`: 129 |
@@ -62,9 +64,9 @@ Comando: `make perf-scoring` (5 min) y `DURATION=30m PEAK=1 make perf-scoring`. 
 
 | Corrida | Carga | Solicitudes | p95 | p99 | Errores |
 |---|---|---:|---:|---:|---:|
-| Primera, 5 min | 50 TPS | 15.000 | 6,09 ms | 8,82 ms | 14 (0,09 %) |
-| Primera, 30 min | 50 TPS | 90.000 | 6,39 ms | 8,61 ms | 25 (0,03 %) |
-| Primera, pico | 100 TPS, 5 min | 30.000 | 6,89 ms | 10,45 ms | 0 |
+| Primera, 5 min (no reproducible) | 50 TPS | 15.000 | 6,09 ms | 8,82 ms | 14 (0,09 %) |
+| Primera, 30 min (no reproducible) | 50 TPS | 90.000 | 6,39 ms | 8,61 ms | 25 (0,03 %) |
+| Primera, pico (no reproducible) | 100 TPS, 5 min | 30.000 | 6,89 ms | 10,45 ms | 0 |
 | Segunda, 5 min | 50 TPS | 15.000 | 4,71 ms | 6,10 ms | 0 |
 | Segunda, 30 min | 50 TPS | 90.000 | 4,54 ms | 5,43 ms | 16 (0,018 %) |
 | Segunda, pico | 100 TPS, 5 min | 30.000 | 4,31 ms | 5,42 ms | 0 |
@@ -77,8 +79,8 @@ Todos los umbrales de k6 se cumplen en las seis corridas.
 
 | Corrida | Muestras | Total mín. / máx. | Máximo por servicio |
 |---|---:|---|---|
-| Primera, 5 min | 11 | 1.925 / 1.942 MiB | kafka 557, transfer-service 449, postgres 342, risk-scoring 284, risk-stream 282, rail-sim 32 |
-| Primera, 30 min + pico | 67 | 1.919 / 2.052 MiB | kafka 696, transfer-service 450, postgres 343, risk-scoring 297, risk-stream 284, rail-sim 33 |
+| Primera, 5 min (no reproducible) | 11 | 1.925 / 1.942 MiB | kafka 557, transfer-service 449, postgres 342, risk-scoring 284, risk-stream 282, rail-sim 32 |
+| Primera, 30 min + pico (no reproducible) | 67 | 1.919 / 2.052 MiB | kafka 696, transfer-service 450, postgres 343, risk-scoring 297, risk-stream 284, rail-sim 33 |
 | Segunda, 30 min + pico | 67 | 1.856 / 1.963 MiB | kafka 670, postgres 378, transfer-service 371, risk-stream 276, risk-scoring 270, rail-sim 38 |
 
 Máximo medido: 2.052 MiB (≈ 2,0 GiB), con límites por contenedor que suman 4,4 GiB.
@@ -87,7 +89,7 @@ Máximo medido: 2.052 MiB (≈ 2,0 GiB), con límites por contenedor que suman 4
 
 Con `risk-scoring` parado, 500 filas nuevas del replay.
 
-| Dato | Primera pasada | Segunda pasada (con calentamiento) |
+| Dato | Primera pasada (no reproducible) | Segunda pasada (con calentamiento) |
 |---|---|---|
 | 500 con el scoring parado (SQL) | `FALLBACK=500` | `FALLBACK=500` |
 | Readiness tras reiniciar | 6 s | 6 s |
@@ -100,7 +102,7 @@ El tiempo hasta la primera decisión `MODEL` incluye la lectura del CSV de PaySi
 
 `amlgen` semilla 42 con la lista real del GAFI (`IR`, `KP`, `MM` en `HIGH`). 30.683 transferencias enviadas en 617 s (29.217 `201`, 1.466 `422` por `BLOCK`, 1.651 aprobadas en revisión). Informe completo: `docs/resultados/aml-eval.md` (el vigente es el de la segunda pasada).
 
-| Tipología | Instancias | Detectadas, primera (lista desde 2026-10-30) | Detectadas, segunda (lista retroactiva) | Techo del manifest |
+| Tipología | Instancias | Detectadas, primera (lista desde 2026-10-30; no reproducible) | Detectadas, segunda (lista retroactiva) | Techo del manifest |
 |---|---:|---:|---:|---:|
 | `STRUCTURING` | 40 | 25 (62,50 %) | 25 (62,50 %) | 62,50 % |
 | `COUNTRY_RISK` | 60 | **0 (0,00 %)** | 34 (56,67 %) | 65,00 % |
