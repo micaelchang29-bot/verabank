@@ -70,7 +70,7 @@ def main():
     if fallback["payload"].get("decision_source") != "FALLBACK" or "score" in fallback["payload"]:
         problems.append("TransferScored.v1.fallback.example.json debe ser FALLBACK sin score")
     broken = deepcopy(model)
-    del broken["payload"]["score"]
+    broken["payload"].pop("score", None)
     if not errors_of(broken, envelope, payloads):
         problems.append("un TransferScored MODEL sin score no debería validar")
     if problems:
