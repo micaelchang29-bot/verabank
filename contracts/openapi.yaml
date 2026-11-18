@@ -150,9 +150,7 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: >
-            Cola de revisión: de mayor a menor severidad y, a igual severidad, de la más antigua a la más reciente.
-            `next_cursor` es opaco y es `null` en la última página.
+          description: Página de alertas, de mayor a menor severidad y antigüedad.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AlertPage' }
