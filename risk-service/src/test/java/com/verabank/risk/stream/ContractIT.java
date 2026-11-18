@@ -17,6 +17,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
 import java.time.Duration;
 import java.util.UUID;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -57,6 +58,11 @@ class ContractIT {
             sendAndWait(Events.transfer(source, "9500.00", T0.plus(Duration.ofHours(i))));
         }
         sendAndWait(Events.transfer(source, "12000.00", T0.plus(Duration.ofHours(4))));
+        // El inbox se confirma antes de publicar (D6): se espera a que las dos alertas lleguen al tópico.
+        Awaitility.await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(50))
+                .untilAsserted(() -> assertThat(published(source))
+                        .as("AmlAlertRaised publicados para la cuenta %s (fraccionamiento + umbral)", source)
+                        .hasSize(2));
         var messages = published(source);
         assertThat(messages).hasSize(2);   // fraccionamiento + umbral
         for (var message : messages) {
