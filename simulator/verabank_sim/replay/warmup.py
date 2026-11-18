@@ -11,7 +11,7 @@ import csv
 import io
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from verabank_sim.replay import mapping as m
 
@@ -47,6 +47,19 @@ def insert_sql(rows: Sequence[m.Row], epoch: datetime) -> str:
         "(" + ", ".join(f"'{v}'" for v in warmup_record(r, epoch)[:5]) + ", '{}'::jsonb, 0, 'APPROVE', 'warmup')"
         for r in rows)
     return (f"INSERT INTO risk.scoring_log ({COLUMNS})\nVALUES\n{values}\nON CONFLICT DO NOTHING;\n")
+
+
+def real_rows_sql(epoch: datetime, first_step: int, steps: int = 24) -> str:
+    """Filas reales (no ``warmup``) de ``risk.scoring_log`` en los ``steps`` pasos previos a ``first_step``."""
+    start = epoch + timedelta(hours=first_step - 1 - steps)
+    end = epoch + timedelta(hours=first_step - 1)
+    return ("SELECT count(*) FROM risk.scoring_log WHERE model_version <> 'warmup' "
+            f"AND occurred_at >= '{start.isoformat()}' AND occurred_at < '{end.isoformat()}';")
+
+
+def real_rows_before(psql, epoch: datetime, first_step: int, steps: int = 24) -> int:
+    """Lo lee el rol de solo lectura de BI: ``sim_loader`` no tiene ``SELECT``."""
+    return int(psql.query(real_rows_sql(epoch, first_step, steps))[0][0])
 
 
 def load(psql, rows: Sequence[m.Row], epoch: datetime) -> tuple[int, str]:

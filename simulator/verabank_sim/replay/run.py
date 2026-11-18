@@ -34,6 +34,8 @@ class Options:
     seed: bool = True
     concurrency: int = 20
     final_timeout_s: float = 60.0
+    steps: int | None = None          # modo por pasos (--steps); None = modo por filas (--n)
+    first_step: int | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,7 @@ class Services:
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.time
     extra: dict[str, Any] = field(default_factory=dict)
+    reader_psql: Any = None        # rol de solo lectura (BI): ¿hay filas reales antes de la tanda?
 
 
 def build_jobs(rows: list[m.Row], epoch: datetime) -> list[tuple[int, list[Job]]]:
@@ -94,16 +97,27 @@ def summarize(options: Options, selection: Selection, outcomes: list, final: dic
 
 
 def run(options: Options, selection: Selection, epoch: datetime, services: Services, out_dir: Path | None) -> dict[str, Any]:
-    extra: dict[str, Any] = {"warmup_rows": 0, "warmup_method": None, "seeded_accounts": 0, "funded_accounts": 0,
-                             "labels_published": 0}
+    extra: dict[str, Any] = {"warmup_rows": 0, "warmup_method": None, "warmup_skipped_real_rows": 0,
+                             "seeded_accounts": 0, "funded_accounts": 0, "labels_published": 0,
+                             "steps": options.steps, "first_step": options.first_step}
     if options.seed and selection.rows:
         result = seed_sql.seed(services.state_psql, replay_accounts(selection.rows))
         extra["seeded_accounts"], extra["funded_accounts"] = result.accounts, result.funded
         log.info("cuentas: %d pedidas, %d financiadas (%s)", result.accounts, result.funded, result.amount)
     if options.warmup and selection.warmup:
-        loaded, method = warmup.load(services.loader_psql, selection.warmup, epoch)
-        extra["warmup_rows"], extra["warmup_method"] = loaded, method
-        log.info("calentamiento: %d filas (%s)", loaded, method)
+        # Tandas encadenadas: si la tanda anterior ya dejó filas reales en los 24 pasos previos, esas son la historia;
+        # el calentamiento no se carga (tampoco podría pisarlas: sus ids son otros y la carga no actualiza nada).
+        anchor = options.first_step or selection.start_step
+        real = (warmup.real_rows_before(services.reader_psql, epoch, anchor)
+                if services.reader_psql is not None and anchor is not None else 0)
+        if real:
+            extra["warmup_skipped_real_rows"] = real
+            extra["warmup_method"] = "skipped"
+            log.info("calentamiento: no se carga, ya hay %d filas reales en los 24 pasos previos al %d", real, anchor)
+        else:
+            loaded, method = warmup.load(services.loader_psql, selection.warmup, epoch)
+            extra["warmup_rows"], extra["warmup_method"] = loaded, method
+            log.info("calentamiento: %d filas (%s)", loaded, method)
 
     groups = build_jobs(selection.rows, epoch)
     started = services.clock()
@@ -137,6 +151,7 @@ def format_summary(summary: dict[str, Any]) -> str:
         f"por estado final: {summary['by_final_status']}",
         f"latencia de cliente de POST /transfers: {lat('client_latency_ms')}",
         f"scoring_latency_ms: {lat('scoring_latency_ms')}",
-        f"calentamiento: {summary['warmup_rows']} filas; cuentas sembradas: {summary['seeded_accounts']} "
+        f"calentamiento: {summary['warmup_rows']} filas ({summary['warmup_method']}); "
+        f"cuentas sembradas: {summary['seeded_accounts']} "
         f"({summary['funded_accounts']} financiadas); etiquetas publicadas: {summary['labels_published']}",
     ])

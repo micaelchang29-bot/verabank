@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -145,6 +145,24 @@ PEAK ?= 0
 
 replay: ## Replay de PaySim (partición de prueba): make replay N=20000 TPS=50 [AMOUNT_FACTOR=1]
 	@scripts/sim.sh replay --n $(N) --tps $(TPS) --amount-factor $(AMOUNT_FACTOR)
+
+# Tandas por pasos y liquidación (fase 5, simulator/README.md). Las ventanas de PSI cubren los pasos [24k+1, 24k+24]
+# desde sim_epoch: las tandas empiezan en 577, 625, ... Directamente: scripts/sim.sh replay --steps 3 --first-step 577
+STEPS ?= 96
+BI_TPS ?= 100
+APPROVE ?= 0
+SETTLE_TIMEOUT ?= 15m
+CONFIRM ?=
+
+settle: ## Espera a que no queden PENDING ni PROCESSING (rol BI): make settle [APPROVE=1 aprueba las IN_REVIEW] [SETTLE_TIMEOUT=15m]
+	@scripts/sim.sh settle $(if $(filter 1 yes true,$(APPROVE)),--approve-reviews,) --timeout $(SETTLE_TIMEOUT)
+
+reset-data: ## DESTRUCTIVO: docker compose down -v (borra PostgreSQL, Kafka, rail y Metabase); exige CONFIRM=yes
+	@CONFIRM=$(CONFIRM) scripts/reset-data.sh
+
+bi-seed: ## Siembra para BI: replay de STEPS (96) pasos desde el 577 a BI_TPS (100) y settle con aprobación de revisiones
+	@scripts/sim.sh replay --steps $(STEPS) --first-step 577 --tps $(BI_TPS)
+	@scripts/sim.sh settle --approve-reviews --timeout $(SETTLE_TIMEOUT)
 
 fallback-demo: ## Para risk-scoring, replay N=500 (todo FALLBACK) y comprueba que al volver vuelve MODEL
 	@scripts/fallback-demo.sh

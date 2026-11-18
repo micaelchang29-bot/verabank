@@ -1,7 +1,7 @@
 # verabank-sim
 
-Simuladores de VeraBank en Python 3.12 (`uv`). Existen los subcomandos `rail`, `chaos` y `amlgen`; el
-despachador (`verabank_sim/cli.py`, tabla `COMMANDS`) queda listo para añadir `replay` y `aml`.
+Simuladores de VeraBank en Python 3.12 (`uv`). Subcomandos: `rail`, `chaos`, `amlgen`, `replay`, `aml`, `aml-eval`,
+`settle` y `watch` (despachador en `verabank_sim/cli.py`, tabla `COMMANDS`).
 
 ```bash
 python -m verabank_sim <subcomando>      # dentro de simulator/: uv run python -m verabank_sim rail
@@ -233,7 +233,7 @@ y no emiten eventos.
 make replay N=20000 TPS=50 [AMOUNT_FACTOR=1]      # o: python -m verabank_sim replay --n 20000 --tps 50
 ```
 
-Opciones: `--start-row`, `--amount-factor`, `--concurrency` (20), `--no-warmup`, `--no-labels`, `--no-seed`,
+Opciones: `--steps K` y `--first-step S` (ver «Tandas por pasos»), `--start-row`, `--amount-factor`, `--concurrency` (20), `--no-warmup`, `--no-labels`, `--no-seed`,
 `--final-timeout` (60 s), `--paysim`, `--base-url`, `--bootstrap`, `--out` (`data/replay`).
 
 - **Filas.** La partición de prueba de `ml/config.yaml` (pasos 575 a 744), solo los `types` de la configuración (nunca
@@ -261,6 +261,38 @@ Opciones: `--start-row`, `--amount-factor`, `--concurrency` (20), `--no-warmup`,
   p50, p95 y p99 de la latencia de cliente de `POST /transfers` y de `scoring_latency_ms`. Esos dos últimos datos y la
   decisión salen de `core.transfers` con el rol de transfer-service (solo `SELECT`): la API de lectura no devuelve
   `decision_source` ni `scoring_latency_ms`, y el rol de BI no lee `core`.
+
+### Tandas por pasos, `settle`, `reset-data` y `bi-seed` (fase 5)
+
+```bash
+scripts/sim.sh replay --steps 3 --first-step 577 [--amount-factor 3] [--tps 100]
+make settle [APPROVE=1] [SETTLE_TIMEOUT=15m]       # equivale a: scripts/sim.sh settle [--approve-reviews]
+make reset-data CONFIRM=yes                        # DESTRUCTIVO
+make bi-seed [STEPS=96] [BI_TPS=100]
+```
+
+- **`--steps K [--first-step S]`.** Alternativa a `--n`, excluyente con ella y con `--start-row`: toma **todas** las
+  filas de `K` pasos consecutivos de la partición de prueba desde `S` (577 por defecto), sin salir de la partición. Se
+  combina con `--amount-factor`. Las ventanas de PSI de la fase 5 cubren los pasos `[24k+1, 24k+24]` desde `sim_epoch`
+  (la 24 es 577–600), así que las tandas de BI y de la demo de deriva empiezan en 577, 625, … Antes de enviar, el replay
+  imprime las filas y la duración estimada a `--tps` (sin contar la espera de la barrera por paso, D11, que sigue
+  vigente).
+- **Tandas encadenadas.** El calentamiento (24 pasos previos al primero) solo se carga si `risk.scoring_log` **no**
+  tiene filas reales (`model_version <> 'warmup'`) en esos 24 pasos; si las tiene, la tanda anterior ya es la historia:
+  no se carga y se informa (`warmup_method = skipped`, `warmup_skipped_real_rows`). Esa comprobación la hace el rol de
+  solo lectura de BI (`sim_loader` no tiene `SELECT`). El calentamiento nunca duplica ni sobrescribe filas reales: sus
+  `transfer_id` son otros (`uuid5` de la fila) y la carga es `COPY` o `INSERT … ON CONFLICT DO NOTHING`, nunca `UPDATE`.
+- **`settle`.** Lee `analytics.v_transfer_outcomes` con el rol de BI y espera a que no queden `PENDING` ni `PROCESSING`;
+  con `--approve-reviews` (`APPROVE=1` en Make) aprueba por la API cada `IN_REVIEW` (la misma llamada que
+  `aml --approve-reviews`, `verabank_sim/load/review.py`, comentario `settle`) y espera también a que terminen. Una que
+  ya no estaba en revisión (`409`) se cuenta como «ya decidida». Al final reporta por estado. Opciones `--timeout`
+  (15m) y `--poll` (5s); sale con 1 si vence el plazo. La vista excluye las transferencias de siembra desde `CLEARING`.
+  `make settle --approve-reviews` no funciona: Make toma la bandera como suya; por eso existe `APPROVE=1`.
+- **`make reset-data CONFIRM=yes`** ejecuta `docker compose down -v --remove-orphans` con todos los perfiles (borra
+  PostgreSQL, Kafka, el estado del rail y Metabase) y detiene el transfer-service del host si corría. Sin `CONFIRM=yes`
+  no ejecuta nada: lista los volúmenes que borraría y sale con 1.
+- **`make bi-seed`**: `replay --steps $(STEPS) --first-step 577 --tps $(BI_TPS)` y `settle --approve-reviews`.
+  Con los valores por defecto (96 pasos, 577–672) son 72.931 filas, unos 12 min a 100 TPS; `STEPS=144` (577–720), 115.139.
 
 ### `aml` y `aml-eval` (D12)
 

@@ -19,7 +19,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from verabank_sim.load import finalstate, seed_sql
+from verabank_sim.load import finalstate, review, seed_sql
 from verabank_sim.load.engine import run_groups
 from verabank_sim.replay.mapping import CENT, NS
 
@@ -90,10 +90,9 @@ def make_worker(api: Any, approve_reviews: bool) -> Callable[[Job], dict[str, An
         result: dict[str, Any] = {"http": reply.status, "approved": False}
         status = reply.body.get("status") if isinstance(reply.body, dict) else None
         if status == "IN_REVIEW" and approve_reviews:
-            tid = reply.body["transfer_id"]
-            review = api.review(tid, "APPROVE", REVIEW_COMMENT)
-            result["approved"] = review.status == 200
-            result["review_http"] = review.status
+            status_code = review.approve(api, reply.body["transfer_id"], REVIEW_COMMENT)
+            result["approved"] = status_code == review.APPROVED
+            result["review_http"] = status_code
         return result
     return work
 
