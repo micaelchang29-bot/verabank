@@ -35,7 +35,7 @@ def test_analytics_migrations_apply_from_scratch_and_twice(provisioned_db):
         objects = conn.execute(
             "SELECT relname, relkind FROM pg_class WHERE relnamespace = 'analytics'::regnamespace "
             "AND relkind IN ('r', 'v') AND relname <> 'probe' ORDER BY 1").fetchall()  # fmt: skip
-    assert [v for v, _ in history] == ["1", "2", "3", "4", "5"]
+    assert [v for v, _ in history] == ["1", "2", "3", "4", "5", "6"]
     assert objects == [("drift_metrics", "r"), ("fraud_reasons", "r"), ("v_transfer_outcomes", "v")]
     again = db.script("db-migrate-analytics.sh")
     assert "up to date" in again.stdout.lower() or "no migration necessary" in again.stdout.lower(), again.stdout
@@ -73,11 +73,40 @@ def test_drift_metrics_has_the_phase_5_columns_key_and_partial_index(provisioned
             ("alert", "boolean", None, None, True),
             ("model_version", "text", None, None, False),
             ("computed_at", "timestamp with time zone", None, None, True),
+            ("reference", "text", None, None, True),
         ]  # fmt: skip
         pk = conn.execute("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'analytics.drift_metrics'::regclass AND contype = 'p'").fetchone()
-        assert pk == ("PRIMARY KEY (window_start, feature)",)
+        assert pk == ("PRIMARY KEY (window_start, feature, reference)",)
         index = conn.execute("SELECT indexdef FROM pg_indexes WHERE schemaname = 'analytics' AND indexname = 'ix_drift_alert'").fetchone()[0]
         assert "(window_start DESC) WHERE alert" in index
+
+
+INSERT_METRIC = """INSERT INTO analytics.drift_metrics (window_start, window_end, feature, psi, n_current, n_bins, degenerate,
+                     insufficient, is_top_feature, model_version) VALUES ('2026-01-01', '2026-01-02', %s, 0.1, 300, 10,
+                     false, false, true, 'm/1')"""
+
+
+def test_v6_keeps_existing_rows_as_train_and_lets_both_references_coexist(provisioned_db):
+    """V6 se aplica sobre una tabla de V3 con filas: se rellenan con 'train' y la clave admite la misma ventana en 'valid'."""
+    v3 = (ROOT / "db/migrations/analytics/V3__drift_metrics.sql").read_text()
+    v6 = (ROOT / "db/migrations/analytics/V6__drift_metrics_reference.sql").read_text()
+    with provisioned_db.connect(ADMIN) as conn, conn.transaction(force_rollback=True):
+        conn.execute("DROP TABLE analytics.drift_metrics")
+        conn.execute(v3)
+        conn.execute(INSERT_METRIC, ("score",))
+        conn.execute(INSERT_METRIC, ("amount",))
+        conn.execute(v6)
+        assert conn.execute("SELECT feature, reference FROM analytics.drift_metrics ORDER BY 1").fetchall() == [
+            ("amount", "train"), ("score", "train")]  # fmt: skip
+        conn.execute("INSERT INTO analytics.drift_metrics (window_start, window_end, feature, psi, n_current, n_bins, "
+                     "degenerate, insufficient, is_top_feature, model_version, reference) SELECT window_start, window_end, "
+                     "feature, 0.9, n_current, n_bins, degenerate, insufficient, is_top_feature, model_version, 'valid' "
+                     "FROM analytics.drift_metrics")  # fmt: skip
+        assert conn.execute("SELECT count(*) FROM analytics.drift_metrics").fetchone() == (4,)
+        with pytest.raises(psycopg.errors.UniqueViolation), conn.transaction():
+            conn.execute(INSERT_METRIC, ("score",))              # misma clave y referencia por defecto: 'train'
+        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
+            conn.execute("UPDATE analytics.drift_metrics SET reference = 'otra'")
 
 
 def test_fraud_reasons_has_three_ranks_per_transfer(provisioned_db):
