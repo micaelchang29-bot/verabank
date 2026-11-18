@@ -126,9 +126,13 @@ def test_t16e_twenty_threads_keep_the_chain_intact_and_gapless(chain_db):
     with chain_db.connect(ADMIN) as conn:
         before = conn.execute("SELECT coalesce(max(audit_id), 0) FROM audit.audit_log").fetchone()[0]
 
+    # Las 20 conexiones se abren antes de lanzar los hilos: lo que se prueba es la concurrencia de las inserciones, no
+    # el tiempo de conexión de una máquina cargada.
+    conns = [chain_db.connect("risk_svc") for _ in range(20)]
+
     def worker(n):
         try:
-            with chain_db.connect("risk_svc") as conn:
+            with conns[n] as conn:
                 for i in range(1000):
                     conn.execute("SELECT audit.append('risk-service', 'LOAD', 'AML_ALERT', %s, NULL, %s::jsonb)",
                                  (f"t{n}-{i}", f'{{"thread": {n}, "i": {i}}}'))  # fmt: skip
