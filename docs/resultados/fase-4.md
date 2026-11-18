@@ -73,7 +73,7 @@ Comando: `make perf-scoring` (5 min) y `DURATION=30m PEAK=1 make perf-scoring`. 
 
 Todos los umbrales de k6 se cumplen en las seis corridas.
 
-**Marcas de tiempo de los fallos (segunda, 30 min).** Los 16 fallos son respuestas `500 internal-error` («La consulta 'bitácora (escritura|lectura)' superó 100 ms») y caen **todos en una sola ráfaga de 0,3 s**, del segundo 739,3 al 739,6 de la prueba (2026-11-17T23:56:46Z, a los ~12 min), con 101 a 117 ms de latencia: 11 de escritura y 5 de lectura. No están al inicio ni son periódicos: es un único bloqueo breve de las consultas a PostgreSQL. No se investigó la causa. (En la primera pasada los fallos no se registraban con marca de tiempo.)
+**Marcas de tiempo de los fallos (segunda, 30 min).** Los 16 fallos son respuestas `500 internal-error` («La consulta 'bitácora (escritura|lectura)' superó 100 ms») y caen **todos en una sola ráfaga de 0,3 s**, del segundo 739,3 al 739,6 de la prueba (2026-11-17T23:56:46Z, a los ~12 min), con 101 a 117 ms de latencia: 10 de escritura y 6 de lectura. No están al inicio ni son periódicos: es un único bloqueo breve de las consultas a PostgreSQL. No se investigó la causa. (En la primera pasada los fallos no se registraban con marca de tiempo.)
 
 **Memoria** (`docker stats --no-stream`, una muestra cada 30 s durante la carga; suma de los seis contenedores). Objetivo: Compose ≤ 8 GB.
 
