@@ -28,6 +28,7 @@ PASSWORDS = {
     "verabank_bi": "bi-test-pw",
     "risk_svc": "risk-svc-test-pw",
     "sim_loader": "sim-loader-test-pw",
+    "ml_job": "ml-job-test-pw",
 }
 
 
@@ -64,6 +65,7 @@ class Database:
             "-e", f"VERABANK_BI_PASSWORD={PASSWORDS['verabank_bi']}",
             "-e", f"RISK_SVC_PASSWORD={PASSWORDS['risk_svc']}",
             "-e", f"SIM_LOADER_PASSWORD={PASSWORDS['sim_loader']}",
+            "-e", f"ML_JOB_PASSWORD={PASSWORDS['ml_job']}",
             "-v", f"{initdb}:/docker-entrypoint-initdb.d:ro",
             "-v", f"{ROOT / 'db/init/roles.sql'}:/sql/roles.sql:ro",
             "-v", f"{ROOT / 'db/init/roles_runtime.sql'}:/sql/roles_runtime.sql:ro",
@@ -95,8 +97,9 @@ class Database:
     def script_env(self) -> dict:
         env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "DOCKER_HOST", "DOCKER_CONFIG")}
         env.update(
-            POSTGRES_DB=DB, POSTGRES_USER=ADMIN,
+            POSTGRES_DB=DB, POSTGRES_USER=ADMIN, POSTGRES_PASSWORD=PASSWORDS[ADMIN],
             RISK_SVC_PASSWORD=PASSWORDS["risk_svc"], SIM_LOADER_PASSWORD=PASSWORDS["sim_loader"],
+            ML_JOB_PASSWORD=PASSWORDS["ml_job"],
             VERABANK_RISK_PASSWORD=PASSWORDS["verabank_risk"],
             VERABANK_DB_CONTAINER=self.name, VERABANK_DB_NETWORK=self.network, VERABANK_DB_HOST="postgres",
             FLYWAY_IMAGE=FLYWAY_IMAGE,
@@ -126,19 +129,20 @@ class Database:
         )  # fmt: skip
 
     def create_analytics(self):
-        """analytics lo crea el rol de arranque (db/README.md)."""
-        sql = (ROOT / "db/migrations/analytics/V1__create_schema_analytics.sql").read_text()
+        """analytics lo migra el rol de arranque, después de core, audit y risk (db/README.md)."""
+        self.script("db-migrate-analytics.sh")
         with self.connect(ADMIN) as conn:
-            conn.execute(sql)
-            conn.execute("CREATE TABLE analytics.probe (n INT)")
-            conn.execute("INSERT INTO analytics.probe VALUES (1)")
+            conn.execute("CREATE TABLE IF NOT EXISTS analytics.probe (n INT)")
+            if conn.execute("SELECT count(*) FROM analytics.probe").fetchone() == (0,):
+                conn.execute("INSERT INTO analytics.probe VALUES (1)")
 
     def provision(self, with_roles_script: bool = True):
+        """El orden de make up-core: core y audit, roles, risk, analytics y permisos."""
         self.flyway_transfer()
-        self.create_analytics()
         if with_roles_script:
             self.script("db-roles.sh")
         self.script("db-migrate-risk.sh")
+        self.create_analytics()
         self.script("db-grants.sh")
 
     def teardown(self):

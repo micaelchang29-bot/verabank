@@ -3,7 +3,8 @@
 # A diferencia de lib.sh no exige .env: lee .env si existe, pero lo que ya esté en el entorno tiene
 # prioridad (la CI y las pruebas lo definen ahí). Nunca imprime secretos.
 #
-# Entorno: POSTGRES_DB, POSTGRES_USER, RISK_SVC_PASSWORD, SIM_LOADER_PASSWORD, VERABANK_RISK_PASSWORD.
+# Entorno: POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD (migrate-analytics), RISK_SVC_PASSWORD, SIM_LOADER_PASSWORD,
+# ML_JOB_PASSWORD, VERABANK_RISK_PASSWORD.
 # Por defecto actúan sobre el servicio `postgres` de Compose; con VERABANK_DB_CONTAINER=<nombre> lo
 # hacen sobre ese contenedor (pruebas de db/tests), y con VERABANK_DB_NETWORK / VERABANK_DB_HOST
 # indican la red y el nombre de host que ve Flyway.

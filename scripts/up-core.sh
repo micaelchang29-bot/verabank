@@ -30,7 +30,7 @@ mkdir -p "$RUN_DIR"
 # Los secretos van por entorno, no por argumentos (no aparecen en ps).
 # Solo las credenciales del rol del servicio: las del superusuario y otros roles se quitan.
 env -u POSTGRES_PASSWORD -u VERABANK_RISK_PASSWORD -u VERABANK_BI_PASSWORD \
-  -u RISK_SVC_PASSWORD -u SIM_LOADER_PASSWORD \
+  -u RISK_SVC_PASSWORD -u SIM_LOADER_PASSWORD -u ML_JOB_PASSWORD \
 VERABANK_SCORING_MODE=stub \
 POSTGRES_HOST=localhost \
 KAFKA_BOOTSTRAP_SERVERS="localhost:${KAFKA_EXTERNAL_PORT:-29092}" \
@@ -44,6 +44,8 @@ for _ in $(seq 1 90); do
     echo "transfer-service listo: ${BASE_URL} (log: ${LOG_FILE#"$ROOT"/})"
     echo "== migraciones de risk (Flyway, rol verabank_risk)"
     scripts/db-migrate-risk.sh
+    echo "== migraciones de analytics (Flyway, rol de arranque)"
+    scripts/db-migrate-analytics.sh
     echo "== permisos de risk_svc, sim_loader y BI"
     scripts/db-grants.sh
     echo "== semilla local"

@@ -29,3 +29,15 @@ GRANT INSERT ON risk.scoring_log TO sim_loader;
 GRANT USAGE ON SCHEMA risk TO verabank_bi;
 GRANT SELECT ON ALL TABLES IN SCHEMA risk TO verabank_bi;
 ALTER DEFAULT PRIVILEGES FOR ROLE verabank_risk IN SCHEMA risk GRANT SELECT ON TABLES TO verabank_bi;
+
+-- ml_job (fase 5): lee la bitácora de scoring y las etiquetas; escribe solo sus dos tablas de analytics.
+-- Las tablas de analytics las crea el rol de arranque (make migrate-analytics), antes de este script.
+GRANT USAGE ON SCHEMA risk TO ml_job;
+GRANT SELECT ON risk.scoring_log, risk.fraud_labels TO ml_job;
+GRANT USAGE ON SCHEMA analytics TO ml_job;
+GRANT SELECT, INSERT, UPDATE ON analytics.drift_metrics, analytics.fraud_reasons TO ml_job;
+
+-- El historial de Flyway de analytics lo crea el rol de arranque, así que los privilegios por defecto de
+-- db/init/roles.sql se lo abrirían a BI: no es un dato de negocio.
+REVOKE ALL ON ALL TABLES IN SCHEMA flyway_analytics FROM verabank_bi;
+REVOKE ALL ON SCHEMA flyway_analytics FROM verabank_bi;

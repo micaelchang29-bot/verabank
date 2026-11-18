@@ -7,4 +7,5 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   -v db="$POSTGRES_DB" \
   -v risk_svc_pw="$RISK_SVC_PASSWORD" \
   -v sim_loader_pw="$SIM_LOADER_PASSWORD" \
+  -v ml_job_pw="$ML_JOB_PASSWORD" \
   -f /sql/roles_runtime.sql

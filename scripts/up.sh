@@ -23,8 +23,9 @@ scripts/db-roles.sh
 echo "== transfer-service (scoring remoto; migra core y audit)"
 "${COMPOSE_ALL[@]}" up -d --wait transfer-service
 
-echo "== migraciones de risk, permisos y semillas"
+echo "== migraciones de risk y analytics, permisos y semillas"
 scripts/db-migrate-risk.sh
+scripts/db-migrate-analytics.sh
 scripts/db-grants.sh
 db/seed/load.sh
 scripts/seed-risk.sh

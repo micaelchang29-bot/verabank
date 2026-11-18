@@ -8,7 +8,7 @@ Una instancia de PostgreSQL con un esquema por servicio (ADR-09). El DDL es el d
 | `migrations/core` | transfer-service | `verabank_transfer` | V1–V8 |
 | `migrations/audit` | transfer-service | `verabank_transfer` | V9–V13 |
 | `migrations/risk` | risk-service (hasta la fase 4, `make migrate-risk`) | `verabank_risk` | V1–V10 |
-| `migrations/analytics` | job de la fase 5 | rol de arranque (`POSTGRES_USER`) | V1 (solo `CREATE SCHEMA`) |
+| `migrations/analytics` | `make migrate-analytics` (fase 5) | rol de arranque (`POSTGRES_USER`) | V1–V5 |
 
 `core` y `audit` las ejecuta el mismo servicio en una sola corrida de Flyway, así que sus
 números de versión no se repiten entre los dos directorios.
@@ -29,12 +29,49 @@ Los roles (`db/init/roles.sql`) tienen `CREATE` sobre la base, de modo que el ro
 cada migración queda como propietario de su esquema. Ningún rol tiene privilegios sobre el
 esquema de otro. `verabank_bi` solo lee lo que cree el rol de arranque, es decir, `analytics`.
 
-Quedan sin crear, por no tener DDL en §4: `analytics.credit_scores` y `analytics.drift_metrics`.
+## Esquema `analytics` (fase 5)
 
-`analytics.v_transfer_outcomes` sí tiene DDL en §4, pero se crea en la fase 5: la vista
-cruza `core` (`transfers`, `accounts`, `customers`) y `risk` (`fraud_labels`), así que solo
-puede crearse cuando ambos esquemas existan, con el rol de arranque, que es quien crea
-`analytics`.
+`make migrate-analytics` (Flyway con el rol de arranque, historial en `flyway_analytics`) corre después de las
+migraciones de `core`, `audit` y `risk` y antes de `make db-grants`; `make up` y `make up-core` lo ejecutan en ese
+orden.
+
+| Migración | Objeto | Notas |
+|---|---|---|
+| V1 | `CREATE SCHEMA analytics` | |
+| V2 | `analytics.v_transfer_outcomes` | DDL **textual** de §4 (una prueba lo compara con `docs/diseno.md`). |
+| V3 | `analytics.drift_metrics` | PSI por ventana y feature (o `score`); PK `(window_start, feature)`; índice parcial `ix_drift_alert` sobre `window_start DESC` donde `alert`. |
+| V4 | `analytics.fraud_reasons` | Tres razones por caso `REVIEW`/`BLOCK` del modelo; PK `(transfer_id, rank)`, `rank` 1..3. |
+| V5 | `audit.verify_chain(p_from)` | Verificador de la cadena de auditoría (T-16), ver más abajo. |
+
+Sobre la vista:
+
+- **No lee `risk.scoring_log`**: sus columnas de scoring salen de `core.transfers`, de modo que no ve las filas
+  `warmup` del calentamiento del replay.
+- **Las transferencias de siembra desde `CLEARING` quedan fuera** por el `JOIN` con `core.customers`: la cuenta de
+  compensación no tiene cliente.
+- La crea el rol de arranque y cruza `core` y `risk` con los permisos de su propietario; `verabank_bi` la lee sin
+  tener ningún privilegio en `core`.
+
+`analytics.credit_scores` no se crea: la ampliación de crédito (3.G) no se hizo.
+
+### Verificador de la cadena de auditoría (T-16)
+
+`audit.verify_chain(p_from BIGINT DEFAULT 1)` devuelve una fila `(checked, first_bad_id, problem)`. Es de solo
+lectura y no toca tablas ni triggers de `audit`: recalcula `row_hash` con la misma fórmula del trigger
+`audit.chain_hash` (V11), encadenando con el `row_hash` de la fila anterior, y comprueba en cada fila, en este orden:
+
+| `problem` | Condición | `first_bad_id` |
+|---|---|---|
+| `GAP` | `audit_id` no es el anterior + 1 (o la primera no es 1) | el primer `audit_id` que falta |
+| `PREV_MISMATCH` | `prev_hash` distinto del `row_hash` anterior | la fila |
+| `HASH_MISMATCH` | `row_hash` distinto del recalculado | la fila |
+
+Está en las migraciones de `analytics` (no en las de `audit`, que ejecuta transfer-service) para que su dueño sea el
+rol de arranque y no un rol de servicio. `EXECUTE` revocado a `PUBLIC` y sin conceder a nadie: solo el administrador
+la ejecuta. `make verify-audit [FROM=n]` la llama y sale con código 1 si hay problema.
+
+**Límite declarado:** sin un ancla externa (p. ej., el último `row_hash` publicado fuera de la base), no detecta que
+se trunque el final de la cadena ni que se reescriba entera desde una fila; una prueba documenta el primer caso.
 
 ## Tablas de apoyo de `risk` (V5–V10)
 
@@ -64,19 +101,20 @@ migraciones de audit también corren donde ese rol no existe (pruebas de transfe
 | `verabank_risk` | migraciones de `risk` | Dueño de `risk`. Sin acceso a `core` ni `audit`. |
 | `risk_svc` | risk-service en ejecución | `SELECT/INSERT/UPDATE/DELETE` en todas las tablas de `risk` (también las futuras, por `ALTER DEFAULT PRIVILEGES FOR ROLE verabank_risk`); `EXECUTE` en `audit.append` y `USAGE` del esquema `audit`, nada más. No es dueño de ningún objeto. Sin acceso a `core`. |
 | `sim_loader` | calentamiento del replay (D1) | Solo `INSERT` en `risk.scoring_log`. No lee ni modifica nada. |
-| `verabank_bi` | BI | Solo `SELECT` en `analytics` (privilegios por defecto de `roles.sql`) y en `risk` (tablas actuales y futuras). |
+| `ml_job` | jobs de ML de la fase 5 (PSI, razones, reentrenamiento) | `SELECT` en `risk.scoring_log` y `risk.fraud_labels`; `SELECT`, `INSERT` y `UPDATE` en `analytics.drift_metrics` y `analytics.fraud_reasons`. Nada en `core`, `audit` ni el resto de `risk`. |
+| `verabank_bi` | BI (el `bi_ro` del manual) | Solo `SELECT` en `analytics` (privilegios por defecto de `roles.sql`, también la vista) y en `risk` (tablas actuales y futuras, `aml_alerts` incluida). Nada en `core` ni en `flyway_analytics`. |
 
-Los creados por `db/init/roles.sql` (`verabank_*`) existen desde la inicialización del volumen. `risk_svc` y
-`sim_loader` los crea `db/init/roles_runtime.sql`, idempotente y con el superusuario de arranque: lo ejecuta
+Los creados por `db/init/roles.sql` (`verabank_*`) existen desde la inicialización del volumen. `risk_svc`,
+`sim_loader` y `ml_job` los crea `db/init/roles_runtime.sql`, idempotente y con el superusuario de arranque: lo ejecuta
 `db/init/initdb.d/20-roles-runtime.sh` en los volúmenes nuevos y `make db-roles` en los que ya existen. Las
-contraseñas llegan del entorno (`.env`): `RISK_SVC_PASSWORD` y `SIM_LOADER_PASSWORD`, sin valor en
+contraseñas llegan del entorno (`.env`): `RISK_SVC_PASSWORD`, `SIM_LOADER_PASSWORD` y `ML_JOB_PASSWORD`, sin valor en
 `.env.example`, sin imprimirse y sin pasar por la línea de comandos.
 
 Los permisos sobre objetos (`db/init/grants.sql`) son idempotentes y se aplican con `make db-grants`
 **después** de las migraciones de `core`, `audit` y `risk`.
 
 Orden de `make up-core`: roles de ejecución → transfer-service (migra `core` y `audit`) → `make migrate-risk` →
-`make db-grants` → semilla de `core` → `make seed-risk` → `make load-country-risk`. Cada paso se puede repetir.
+`make migrate-analytics` → `make db-grants` → semilla de `core` → `make seed-risk` → `make load-country-risk`. Cada paso se puede repetir.
 
 `make migrate-risk` ejecuta Flyway (imagen `flyway/flyway:11.7.2`, la misma versión que transfer-service) con
 `verabank_risk`, `defaultSchema=flyway_risk` y `db/migrations/risk`: es la configuración que usará risk-service
@@ -131,3 +169,11 @@ y ejecuta los scripts de `scripts/` contra ese contenedor. Cubre: migraciones de
 por regla y parámetros inmutables; `risk_svc` no lee `core` ni inserta en `audit.audit_log`, pero `audit.append`
 inserta y encadena el hash; `sim_loader` solo inserta en `scoring_log`; BI solo lee; `make seed-risk` y
 `make load-country-risk` idempotentes; el CSV sin duplicados y solo con códigos alfa-2 reales.
+
+Fase 5 (`test_analytics.py`, `test_audit_chain.py`): migraciones de `analytics` desde cero y dos veces; la vista
+igual al texto de §4 y sin filas de `CLEARING`; columnas y claves de `drift_metrics` y `fraud_reasons`; `ml_job` y
+BI con exactamente sus permisos. T-16: `UPDATE` y `DELETE` fallan con el mensaje del trigger; un superusuario que
+desactiva el trigger y altera `detail` (o cualquier campo del hash) da `HASH_MISMATCH` en esa fila, un borrado da
+`GAP`, un `prev_hash` alterado `PREV_MISMATCH`; 20 hilos con 1.000 `audit.append` dejan la cadena íntegra y sin
+huecos; una sesión en `America/Lima` no la rompe; `verify_chain` sobre más de 100.000 filas (0,4 s en la laptop de
+referencia).

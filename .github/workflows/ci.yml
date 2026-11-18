@@ -168,9 +168,10 @@ jobs:
         run: |
           rnd() { openssl rand -hex 18; }
           # Credenciales de los roles de ejecución de risk: efímeras y enmascaradas en el log.
-          risk_svc_pw="$(rnd)"; sim_loader_pw="$(rnd)"
+          risk_svc_pw="$(rnd)"; sim_loader_pw="$(rnd)"; ml_job_pw="$(rnd)"
           echo "::add-mask::${risk_svc_pw}"
           echo "::add-mask::${sim_loader_pw}"
+          echo "::add-mask::${ml_job_pw}"
           cluster_id="$(python3 -c 'import base64, uuid; print(base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("="))')"
           sed -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rnd)/" \
               -e "s/^VERABANK_TRANSFER_PASSWORD=.*/VERABANK_TRANSFER_PASSWORD=$(rnd)/" \
@@ -178,6 +179,7 @@ jobs:
               -e "s/^VERABANK_BI_PASSWORD=.*/VERABANK_BI_PASSWORD=$(rnd)/" \
               -e "s/^RISK_SVC_PASSWORD=.*/RISK_SVC_PASSWORD=${risk_svc_pw}/" \
               -e "s/^SIM_LOADER_PASSWORD=.*/SIM_LOADER_PASSWORD=${sim_loader_pw}/" \
+              -e "s/^ML_JOB_PASSWORD=.*/ML_JOB_PASSWORD=${ml_job_pw}/" \
               -e "s/^KAFKA_CLUSTER_ID=.*/KAFKA_CLUSTER_ID=${cluster_id}/" \
               -e "s/^VERABANK_API_KEYS=.*/VERABANK_API_KEYS=ci:$(rnd)/" \
               -e "s/^SERVER_PORT=.*/SERVER_PORT=${SERVER_PORT}/" \

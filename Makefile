@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk db-grants seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -11,7 +11,7 @@ up: ## Todo en Compose: core + risk + sim (transfer-service remoto, risk-scoring
 	@scripts/up.sh
 
 down: ## Detiene todo el Compose (conserva los volúmenes)
-	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim down
+	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" ML_JOB_PASSWORD="$${ML_JOB_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim down
 
 up-core: ## Compose (perfil core), tópicos, transfer-service en SERVER_PORT (8081) y semilla
 	@scripts/up-core.sh
@@ -22,7 +22,7 @@ stop-core: ## Detiene transfer-service
 down-core: stop-core ## Detiene transfer-service y el compose (conserva los volúmenes)
 	@# down no necesita las contraseñas, pero Compose interpola docker-compose.yml entero y las exige: con valores
 	@# ficticios solo aquí, la limpieza funciona aunque .env esté incompleto o el arranque haya fallado.
-	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim down
+	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" ML_JOB_PASSWORD="$${ML_JOB_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim down
 
 test-core: ## Compila y prueba transfer-service (JUnit 5 + Testcontainers)
 	@cd transfer-service && ./mvnw -B verify
@@ -101,14 +101,22 @@ ml-fixtures: ## Escenarios de features con respuesta conocida en contracts/fixtu
 	@uv run --project ml --frozen python -m verabank_ml fixtures
 
 # Base de datos de risk (db/README.md). make up-core ya los ejecuta en este orden.
-db-roles: ## Crea los roles risk_svc y sim_loader (idempotente)
+db-roles: ## Crea los roles risk_svc, sim_loader y ml_job (idempotente)
 	@scripts/db-roles.sh
 
 migrate-risk: ## Migraciones de db/migrations/risk con Flyway y el rol verabank_risk
 	@scripts/db-migrate-risk.sh
 
-db-grants: ## Permisos de risk_svc, sim_loader y BI sobre risk y audit (idempotente)
+migrate-analytics: ## Migraciones de db/migrations/analytics (vista, drift_metrics, fraud_reasons, audit.verify_chain), rol de arranque
+	@scripts/db-migrate-analytics.sh
+
+FROM ?= 1
+
+db-grants: ## Permisos de risk_svc, sim_loader, ml_job y BI sobre risk, audit y analytics (idempotente)
 	@scripts/db-grants.sh
+
+verify-audit: ## T-16: verifica la cadena de hash de audit.audit_log; sale con 1 si está alterada [FROM=1]
+	@FROM=$(FROM) scripts/verify-audit.sh
 
 seed-risk: ## Exime la cuenta CLEARING de las reglas AML (idempotente)
 	@scripts/seed-risk.sh
