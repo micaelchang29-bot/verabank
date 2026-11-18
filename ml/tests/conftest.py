@@ -44,3 +44,13 @@ def contract() -> dict:
 def raw() -> pd.DataFrame:
     """2.000 filas sin ordenar por paso."""
     return random_rows(np.random.default_rng(7), 2000)
+
+
+@pytest.fixture(scope="session")
+def pg():
+    """PostgreSQL desechable con scoring_log, fraud_labels, drift_metrics, fraud_reasons y el rol ml_job (Docker)."""
+    from pgdb import Postgres
+
+    db = Postgres()
+    yield db
+    db.stop()

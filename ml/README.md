@@ -268,3 +268,29 @@ cláusula SA, cualquier derivado de los datos que se redistribuya debe ir bajo C
 Los pesos entrenados con PaySim (`artifacts/model.onnx` y `artifacts/challenger/model.onnx`), `golden.jsonl` y `golden_challenger.jsonl` se tratan como
 material adaptado de PaySim y se distribuyen bajo CC BY-SA 4.0, con la atribución de la ficha del dataset; el código
 del repositorio mantiene su propia licencia.
+
+## Monitoreo de drift (fase 5, §5f, D1 y D2)
+
+```bash
+make ml-psi-ref                  # ml/artifacts/psi_reference.json desde train; hash en manifest.json
+make psi [ARGS=--recompute]      # ventanas completas pendientes → analytics.drift_metrics (rol ml_job)
+make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–672 con montos × 3
+```
+
+- **Referencia** (`monitor/reference.py`): solo la partición `train` (pasos 1–400) de `features_A.parquet`; solo
+  agregados, sin marcas de tiempo y determinista (dos ejecuciones dan el mismo archivo byte a byte). Por feature, bins
+  de `monitor/binning.py`; además el score del champion sobre train (redondeado a 5 decimales, como `scoring_log`),
+  `top_features` (5 de mayor SHAP medio absoluto con TreeSHAP exacto de XGBoost sobre una muestra determinista de
+  200.000 filas de train; `|coef·desv|` si sirviera la logística), `model_version` y `model_sha256`. Hay que
+  regenerarla al cambiar el champion: `ml-export` solo conserva su entrada en el manifiesto si es del mismo
+  `model_sha256`, y `tests/test_psi.py` lo exige.
+- **Bins**: 10 por deciles con bordes únicos (`(borde[i-1], borde[i]]`); ≤ 10 valores distintos: uno por valor más
+  «otro»; un solo bin ⇒ `degenerate`, PSI 0. Proporciones acotadas a ≥ 1e-4, sin renormalizar;
+  PSI = Σ (a − e)·ln(a/e). Los valores se redondean a 9 decimales antes de binarizar (Java y Python difieren en el
+  último bit de `hour_sin`/`hour_cos`). El mismo código sirve para la referencia y para cada ventana.
+- **Ventanas** (`monitor/psi.py`): la `k` cubre los pasos `[24k+1, 24k+24]` (la 24 es 577–600). Filas de
+  `risk.scoring_log` sin `warmup`. Completa si hay filas con `occurred_at >= window_end` (la última ventana con datos
+  nunca lo está). Menos de 200 filas ⇒ `insufficient`. `alert` solo para `score` y las `top_features`, con PSI > 0,25
+  en la ventana y en la anterior contigua. Upsert por `(window_start, feature)`; `--fail-on-alert` sale con 2.
+- Con la referencia actual (champion `fraud-xgb/6`): `top_features` = `type_PAYMENT`, `dst_seen_before`,
+  `type_CASH_OUT`, `type_TRANSFER`, `log_amount`; `is_new_beneficiary` es degenerada (constante en train).

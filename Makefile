@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed bi-init bi-up bi-check bi-url test-bi
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures ml-psi-ref psi drift-demo amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed bi-init bi-up bi-check bi-url test-bi
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -97,6 +97,15 @@ ml-report: ## Ablación B (solo valid) y ml/reports/model-report.md
 ml-export: ## ONNX del champion y del challenger, golden.jsonl, thresholds.json y manifest.json (ml/artifacts/)
 	@uv run --project ml --frozen python -m verabank_ml export
 
+ml-psi-ref: ## Referencia del PSI desde train (ml/artifacts/psi_reference.json, hash en manifest.json); tras cambiar el champion
+	@MLFLOW_DISABLE_AGENT_HINT=1 uv run --project ml --frozen python -m verabank_ml psi-reference
+
+psi: ## PSI de las ventanas completas pendientes en analytics.drift_metrics (rol ml_job): make psi [ARGS=--recompute|--fail-on-alert]
+	@scripts/ml-job.sh psi $(ARGS)
+
+drift-demo: ## DESTRUCTIVO (CONFIRM=yes): reset, tanda base 577–624, PSI, deriva 625–672 × 3, PSI y alertas [DEMO_TPS=100]
+	@CONFIRM=$(CONFIRM) DEMO_TPS=$(DEMO_TPS) scripts/drift-demo.sh
+
 ml-fixtures: ## Escenarios de features con respuesta conocida en contracts/fixtures/feature_scenarios.json (sin datos)
 	@uv run --project ml --frozen python -m verabank_ml fixtures
 
@@ -153,6 +162,7 @@ BI_TPS ?= 100
 APPROVE ?= 0
 SETTLE_TIMEOUT ?= 15m
 CONFIRM ?=
+DEMO_TPS ?= 100
 
 settle: ## Espera a que no queden PENDING ni PROCESSING (rol BI): make settle [APPROVE=1 aprueba las IN_REVIEW] [SETTLE_TIMEOUT=15m]
 	@scripts/sim.sh settle $(if $(filter 1 yes true,$(APPROVE)),--approve-reviews,) --timeout $(SETTLE_TIMEOUT)

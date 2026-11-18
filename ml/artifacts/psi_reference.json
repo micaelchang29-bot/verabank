@@ -1,0 +1,367 @@
+{
+  "version": 1,
+  "model_version": "fraud-xgb/6",
+  "model_sha256": "c794f3d619a7a2934263c2ce92e63e4ec3577cfcb5e3878d43c1ec8efb20ec99",
+  "model_family": "xgb",
+  "feature_set": "A",
+  "partition": "train",
+  "train_steps": [
+    1,
+    400
+  ],
+  "n_train": 4515663,
+  "method": {
+    "bins": "deciles con bordes únicos; <= 10 valores: uno por valor + otro",
+    "floor": 0.0001,
+    "decimals": 9,
+    "psi": "sum((a - e) * ln(a / e))",
+    "top_features": "mean |SHAP| (xgb, muestra de entrenamiento)",
+    "shap_sample": 200000
+  },
+  "top_features": [
+    "type_PAYMENT",
+    "dst_seen_before",
+    "type_CASH_OUT",
+    "type_TRANSFER",
+    "log_amount"
+  ],
+  "importance": {
+    "amount": 0.176670179,
+    "log_amount": 0.237538472,
+    "type_TRANSFER": 0.309962511,
+    "type_CASH_OUT": 0.366487265,
+    "type_PAYMENT": 0.830396235,
+    "type_DEBIT": 0.000342269,
+    "hour_sin": 0.108233683,
+    "hour_cos": 0.204193503,
+    "dst_in_count_24h": 0.004532789,
+    "dst_in_sum_24h": 0.042065099,
+    "dst_distinct_src_24h": 0.0,
+    "dst_seen_before": 0.521761,
+    "dst_age_hours": 0.032731347,
+    "src_out_count_1h": 0.0,
+    "src_out_count_24h": 0.0,
+    "src_out_sum_24h": 0.0,
+    "is_new_beneficiary": 0.0
+  },
+  "features": {
+    "amount": {
+      "kind": "quantile",
+      "n_bins": 10,
+      "degenerate": false,
+      "edges": [
+        3645.212,
+        7707.09,
+        13038.956,
+        22030.676,
+        44624.89,
+        95470.966,
+        158333.224,
+        238269.494,
+        379493.112
+      ],
+      "expected": [
+        0.10000015501599654,
+        0.10000015501599654,
+        0.09999971211314927,
+        0.09999993356457292,
+        0.10000015501599654,
+        0.09999993356457292,
+        0.09999993356457292,
+        0.09999993356457292,
+        0.09999993356457292,
+        0.10000015501599654
+      ]
+    },
+    "log_amount": {
+      "kind": "quantile",
+      "n_bins": 10,
+      "degenerate": false,
+      "edges": [
+        8.2014441,
+        8.950025706,
+        9.475773461,
+        10.000236515,
+        10.706069463,
+        11.466587934,
+        11.97246342,
+        12.381161837,
+        12.846594361
+      ],
+      "expected": [
+        0.10000015501599654,
+        0.10000015501599654,
+        0.09999971211314927,
+        0.09999993356457292,
+        0.10000015501599654,
+        0.09999993356457292,
+        0.09999993356457292,
+        0.09999993356457292,
+        0.09999993356457292,
+        0.10000015501599654
+      ]
+    },
+    "type_TRANSFER": {
+      "kind": "categorical",
+      "n_bins": 3,
+      "degenerate": false,
+      "values": [
+        0.0,
+        1.0
+      ],
+      "expected": [
+        0.8933844266057941,
+        0.1066155733942059,
+        0.0001
+      ]
+    },
+    "type_CASH_OUT": {
+      "kind": "categorical",
+      "n_bins": 3,
+      "degenerate": false,
+      "values": [
+        0.0,
+        1.0
+      ],
+      "expected": [
+        0.5464462250615247,
+        0.45355377493847526,
+        0.0001
+      ]
+    },
+    "type_PAYMENT": {
+      "kind": "categorical",
+      "n_bins": 3,
+      "degenerate": false,
+      "values": [
+        0.0,
+        1.0
+      ],
+      "expected": [
+        0.5683887393722694,
+        0.43161126062773064,
+        0.0001
+      ]
+    },
+    "type_DEBIT": {
+      "kind": "categorical",
+      "n_bins": 3,
+      "degenerate": false,
+      "values": [
+        0.0,
+        1.0
+      ],
+      "expected": [
+        0.9917806089604118,
+        0.008219391039588207,
+        0.0001
+      ]
+    },
+    "hour_sin": {
+      "kind": "quantile",
+      "n_bins": 9,
+      "degenerate": false,
+      "edges": [
+        -0.965925826,
+        -0.866025404,
+        -0.707106781,
+        -0.5,
+        -0.258819045,
+        0.0,
+        0.258819045,
+        0.707106781
+      ],
+      "expected": [
+        0.26701881872052896,
+        0.1056954427290079,
+        0.0996646561091915,
+        0.09020934467430364,
+        0.08250283513185107,
+        0.0793739479673306,
+        0.07923554082755954,
+        0.14363228611169612,
+        0.052667127728530674
+      ]
+    },
+    "hour_cos": {
+      "kind": "quantile",
+      "n_bins": 8,
+      "degenerate": false,
+      "edges": [
+        -0.965925826,
+        -0.866025404,
+        -0.707106781,
+        -0.5,
+        -0.258819045,
+        -0.0,
+        0.5
+      ],
+      "expected": [
+        0.22428888072471306,
+        0.1422836469417669,
+        0.1394508403306447,
+        0.1154842600078881,
+        0.08855200221982908,
+        0.10042600610364413,
+        0.12091912084670624,
+        0.06859524282480779
+      ]
+    },
+    "dst_in_count_24h": {
+      "kind": "quantile",
+      "n_bins": 4,
+      "degenerate": false,
+      "edges": [
+        0.0,
+        1.0,
+        2.0
+      ],
+      "expected": [
+        0.7135711854494013,
+        0.14792379325029348,
+        0.06358069678804641,
+        0.07492432451225878
+      ]
+    },
+    "dst_in_sum_24h": {
+      "kind": "quantile",
+      "n_bins": 4,
+      "degenerate": false,
+      "edges": [
+        0.0,
+        188011.77,
+        540596.294
+      ],
+      "expected": [
+        0.7135711854494013,
+        0.08642872597002921,
+        0.09999993356457292,
+        0.10000015501599654
+      ]
+    },
+    "dst_distinct_src_24h": {
+      "kind": "quantile",
+      "n_bins": 4,
+      "degenerate": false,
+      "edges": [
+        0.0,
+        1.0,
+        2.0
+      ],
+      "expected": [
+        0.7135711854494013,
+        0.14792379325029348,
+        0.06358069678804641,
+        0.07492432451225878
+      ]
+    },
+    "dst_seen_before": {
+      "kind": "categorical",
+      "n_bins": 3,
+      "degenerate": false,
+      "values": [
+        0.0,
+        1.0
+      ],
+      "expected": [
+        0.5411420205626505,
+        0.4588579794373495,
+        0.0001
+      ]
+    },
+    "dst_age_hours": {
+      "kind": "quantile",
+      "n_bins": 6,
+      "degenerate": false,
+      "edges": [
+        0.0,
+        8.0,
+        49.0,
+        120.0,
+        188.0
+      ],
+      "expected": [
+        0.5411420205626505,
+        0.06181440023314406,
+        0.09819532591338194,
+        0.10129010955866281,
+        0.0977278419580912,
+        0.0998303017740695
+      ]
+    },
+    "src_out_count_1h": {
+      "kind": "categorical",
+      "n_bins": 3,
+      "degenerate": false,
+      "values": [
+        0.0,
+        1.0
+      ],
+      "expected": [
+        0.9999902561373601,
+        0.0001,
+        0.0001
+      ]
+    },
+    "src_out_count_24h": {
+      "kind": "categorical",
+      "n_bins": 3,
+      "degenerate": false,
+      "values": [
+        0.0,
+        1.0
+      ],
+      "expected": [
+        0.9998613714088053,
+        0.00013862859119469277,
+        0.0001
+      ]
+    },
+    "src_out_sum_24h": {
+      "kind": "quantile",
+      "n_bins": 2,
+      "degenerate": false,
+      "edges": [
+        0.0
+      ],
+      "expected": [
+        0.9998613714088053,
+        0.00013862859119469277
+      ]
+    },
+    "is_new_beneficiary": {
+      "kind": "categorical",
+      "n_bins": 2,
+      "degenerate": true,
+      "values": [
+        1.0
+      ],
+      "expected": [
+        1.0,
+        0.0001
+      ]
+    }
+  },
+  "score": {
+    "kind": "quantile",
+    "n_bins": 7,
+    "degenerate": false,
+    "edges": [
+      0.03058,
+      0.03656,
+      0.09585,
+      0.09764,
+      0.10874,
+      0.15766
+    ],
+    "expected": [
+      0.46279649300667475,
+      0.03731987971644474,
+      0.1685473428818758,
+      0.031371251574796435,
+      0.10001654242134543,
+      0.11067898556646057,
+      0.08926950483240224
+    ]
+  }
+}

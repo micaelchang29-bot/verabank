@@ -38,6 +38,10 @@
     "golden_challenger.jsonl": {
       "sha256": "58a1d00a563c1697dd23bbebc77442dad3b03324297c7f75bec47bf00a7b295e",
       "cases": 1000
+    },
+    "psi_reference.json": {
+      "sha256": "a569122289be252231a90387e1a7552c04c34a41567cce4ab3e6a3462fc2bdf9",
+      "model_sha256": "c794f3d619a7a2934263c2ce92e63e4ec3577cfcb5e3878d43c1ec8efb20ec99"
     }
   },
   "models": {

@@ -19,6 +19,7 @@ dependencies = [
     "matplotlib",
     "onnxmltools==1.16.0",
     "onnxruntime==1.32.0",
+    "psycopg[binary]>=3.2",
 ]
 
 [dependency-groups]

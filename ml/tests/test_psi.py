@@ -1,0 +1,316 @@
+"""PSI (5.D): binning, fórmula, ventanas, alertas, job sobre PostgreSQL y referencia (D1, D2)."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import uuid
+from datetime import UTC, datetime, timedelta
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from verabank_ml.monitor import binning, psi, reference
+
+EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
+ARTIFACTS = reference.ARTIFACTS
+
+
+def at_step(step: int) -> datetime:
+    return EPOCH + timedelta(hours=step - 1)
+
+
+# --- PSI y binning con ejemplos a mano ---------------------------------------------------------------------------
+
+
+def test_identical_distributions_give_zero():
+    assert binning.psi([0.2, 0.3, 0.5], [0.2, 0.3, 0.5]) == 0.0
+
+
+def test_known_shift():
+    # (0,75 − 0,5)·ln(1,5) + (0,25 − 0,5)·ln(0,5)
+    expected = 0.25 * math.log(1.5) + 0.25 * math.log(2)
+    assert binning.psi([0.5, 0.5], [0.75, 0.25]) == pytest.approx(expected, abs=1e-12)
+    assert expected == pytest.approx(0.274653, abs=1e-6)
+
+
+def test_empty_bin_is_floored_at_1e4_without_renormalising():
+    bins = binning.fit_bins([0, 1] * 50)
+    actual = binning.proportions(bins, [0] * 10)
+    assert list(actual) == [1.0, 1e-4, 1e-4]           # 0, 1, «otro»: suma > 1, sin renormalizar
+    e = binning.proportions(bins, [0, 1] * 50)
+    hand = (1 - 0.5) * math.log(1 / 0.5) + (1e-4 - 0.5) * math.log(1e-4 / 0.5) + 0.0
+    assert binning.psi(e, actual) == pytest.approx(hand, abs=1e-12)
+
+
+def test_repeated_quantile_edges_are_merged():
+    train = [0.0] * 80 + list(range(1, 21))             # 21 valores distintos: deciles
+    bins = binning.fit_bins(train)
+    assert bins.kind == "quantile"
+    # Cuantil lineal: posición 99·q en los 100 valores ordenados (80 ceros, luego 1..20). q = 0,1…0,7 → 0;
+    # q = 0,8 → posición 79,2 → 0 + 0,2·(1 − 0) = 0,2; q = 0,9 → 89,1 → 10 + 0,1·(11 − 10) = 10,1.
+    assert bins.edges == (0.0, 0.2, 10.1)
+    assert bins.n_bins == 4 and not bins.degenerate
+
+
+def test_quantile_edges_by_hand():
+    train = list(range(1, 12))                           # 1..11: cuantil q = 1 + 10·q
+    bins = binning.fit_bins(train)
+    assert bins.edges == tuple(float(1 + q) for q in range(1, 10))
+    # (borde[i-1], borde[i]]: 2 va al bin 0, 2,0000001 al bin 1, 11 al último.
+    assert list(binning.assign(bins, [1, 2, 2.0000001, 10, 10.5, 11])) == [0, 0, 1, 8, 9, 9]
+
+
+def test_constant_feature_is_degenerate_and_scores_zero():
+    bins = binning.fit_bins([3.0] * 50)
+    assert bins.degenerate
+    ref = {"top_features": [], "features": {"c": {**bins.to_json(), "expected": list(binning.proportions(bins, [3.0] * 50))}},
+           "score": quantile_spec(np.linspace(0, 1, 100))}
+    metrics = psi.compute_window(ref, EPOCH, EPOCH + psi.WINDOW, [0.5] * 300, [{"c": 9.0}] * 300, "m/1")
+    c = next(m for m in metrics if m.feature == "c")
+    assert c.degenerate and c.psi == 0.0
+
+
+def test_few_values_with_an_unseen_value_go_to_other():
+    bins = binning.fit_bins([0, 1, 2, 2, 1, 0])
+    assert bins.kind == "categorical" and bins.values == (0.0, 1.0, 2.0) and bins.n_bins == 4
+    assert list(binning.assign(bins, [0, 2, 5, -1])) == [0, 2, 3, 3]
+    assert list(binning.proportions(bins, [5, 5, 0, 1])) == [0.25, 0.25, 1e-4, 0.5]
+
+
+def test_values_are_rounded_before_binning():
+    """El seno de la hora en Java puede diferir en el último bit: cae en el mismo bin."""
+    bins = binning.fit_bins(np.linspace(-1, 1, 100))
+    edge = bins.edges[3]
+    assert binning.assign(bins, [edge + 1e-15])[0] == binning.assign(bins, [edge])[0]
+
+
+# --- ventanas y alertas --------------------------------------------------------------------------------------------
+
+
+def test_window_alignment_at_576_577_and_600_601():
+    assert psi.window_index(EPOCH, at_step(576)) == 23
+    assert psi.window_index(EPOCH, at_step(577)) == 24
+    assert psi.window_index(EPOCH, at_step(600)) == 24
+    assert psi.window_index(EPOCH, at_step(601)) == 25
+    assert psi.window_steps(24) == (577, 600)
+    assert psi.window_bounds(EPOCH, 24) == (at_step(577), at_step(601))
+
+
+def quantile_spec(values) -> dict:
+    bins = binning.fit_bins(values)
+    return {**bins.to_json(), "expected": [float(p) for p in binning.proportions(bins, values)]}
+
+
+@pytest.fixture
+def ref():
+    rng = np.random.default_rng(7)
+    train = {"a": rng.normal(0, 1, 5000), "b": rng.normal(0, 1, 5000), "kind": rng.integers(0, 3, 5000).astype(float)}
+    return {"top_features": ["a", "kind"], "features": {k: quantile_spec(v) for k, v in train.items()},
+            "score": quantile_spec(rng.beta(1, 20, 5000))}
+
+
+def window(ref, k: int, shift: float, n: int = 400, seed: int = 0):
+    """Una ventana: ``shift`` desplaza a, b y el score (0 = igual que entrenamiento)."""
+    rng = np.random.default_rng(seed + k)
+    feats = [{"a": float(x + shift), "b": float(y + shift), "kind": float(z)}
+             for x, y, z in zip(rng.normal(0, 1, n), rng.normal(0, 1, n), rng.integers(0, 3, n), strict=True)]
+    scores = list(np.clip(rng.beta(1, 20, n) + shift / 4, 0, 1))
+    return (k, scores, feats, "m/1")
+
+
+def alerts(done) -> set[tuple[int, str]]:
+    return {(k, m.feature) for k, ms in done.items() for m in ms if m.alert}
+
+
+def test_a_single_window_over_the_threshold_does_not_alert(ref):
+    done = psi.evaluate(ref, EPOCH, [window(ref, 24, 0), window(ref, 25, 3), window(ref, 26, 0)], {})
+    by = {m.feature: m for m in done[25]}
+    assert by["a"].psi > 0.25 and by["score"].psi > 0.25
+    assert alerts(done) == set()
+
+
+def test_two_contiguous_windows_alert_only_score_and_top_features(ref):
+    done = psi.evaluate(ref, EPOCH, [window(ref, 24, 0), window(ref, 25, 3), window(ref, 26, 3)], {})
+    by = {m.feature: m for m in done[26]}
+    assert by["b"].psi > 0.25 and not by["b"].alert and not by["b"].is_top_feature   # fuera del top: sin alerta
+    assert alerts(done) == {(26, "a"), (26, "score")}                                 # kind no se desplazó
+
+
+def test_two_high_windows_separated_by_a_low_one_do_not_alert(ref):
+    done = psi.evaluate(ref, EPOCH, [window(ref, 24, 3), window(ref, 25, 0), window(ref, 26, 3)], {})
+    assert alerts(done) == set()
+
+
+def test_the_previous_window_can_come_from_the_table(ref):
+    first = psi.evaluate(ref, EPOCH, [window(ref, 25, 3)], {})
+    done = psi.evaluate(ref, EPOCH, [window(ref, 26, 3)], {25: {m.feature: m for m in first[25]}})
+    assert alerts(done) == {(26, "a"), (26, "score")}
+
+
+def test_under_200_rows_is_insufficient_and_never_alerts(ref):
+    done = psi.evaluate(ref, EPOCH, [window(ref, 25, 3, n=199), window(ref, 26, 3)], {})
+    assert all(m.insufficient and m.n_current == 199 for m in done[25])
+    assert not any(m.insufficient for m in done[26])
+    assert alerts(done) == set()                          # la anterior es insuficiente
+    done = psi.evaluate(ref, EPOCH, [window(ref, 25, 3), window(ref, 26, 3, n=150)], {})
+    assert alerts(done) == set()
+
+
+# --- job sobre PostgreSQL ------------------------------------------------------------------------------------------
+
+
+def insert_rows(pg, rows):
+    with pg.connect("admin") as conn, conn.cursor() as cur:
+        cur.executemany(
+            "INSERT INTO risk.scoring_log (transfer_id, source_ref, dest_ref, amount, occurred_at, features, score, "
+            "decision, model_version) VALUES (%s, 's', 'd', 1, %s, %s, %s, 'APPROVE', %s)",
+            [(uuid.uuid4(), at, json.dumps(f), round(s, 5), v) for at, f, s, v in rows])
+
+
+def rows_for(ref, k: int, shift: float, n: int = 400, version="m/1", seed=0):
+    _, scores, feats, _ = window(ref, k, shift, n, seed)
+    start = psi.window_bounds(EPOCH, k)[0]
+    return [(start + timedelta(hours=i % 24), f, s, version) for i, (f, s) in enumerate(zip(feats, scores, strict=True))]
+
+
+def independent_psi(spec: dict, values) -> float:
+    """Implementación de la prueba: numpy puro, sin el código del job."""
+    x = np.round(np.asarray(values, dtype=float), 9)
+    if spec["kind"] == "quantile":
+        idx = np.digitize(x, np.array(spec["edges"]), right=True)
+    else:
+        lookup = {v: i for i, v in enumerate(spec["values"])}
+        idx = np.array([lookup.get(v, len(spec["values"])) for v in x])
+    a = np.maximum(np.bincount(idx, minlength=spec["n_bins"]) / len(x), 1e-4)
+    e = np.maximum(np.array(spec["expected"]), 1e-4)
+    return float(np.sum((a - e) * np.log(a / e)))
+
+
+def stored(pg):
+    with pg.connect("admin") as conn:
+        return conn.execute("SELECT window_start, feature, psi, n_current, n_bins, degenerate, insufficient, "
+                            "is_top_feature, alert, model_version FROM analytics.drift_metrics ORDER BY 1, 2").fetchall()
+
+
+def test_job_matches_an_independent_implementation_and_skips_warmup_and_incomplete(pg, ref):
+    pg.reset()
+    w24 = rows_for(ref, 24, 0.7, seed=1)
+    insert_rows(pg, w24 + rows_for(ref, 25, 0.7, seed=2) + rows_for(ref, 26, 0, n=50, seed=3))
+    warm = [(at_step(580), {"a": 99.0, "b": 99.0, "kind": 9.0}, 0.99, "warmup")] * 0
+    insert_rows(pg, [(at_step(580 + i % 20), {"a": 50.0, "b": 50.0, "kind": 7.0}, 0.9, "warmup") for i in range(300)] + warm)
+    with pg.connect() as conn:                           # rol ml_job
+        done = psi.run(conn, ref, EPOCH)
+    assert sorted(done) == [24, 25]                      # la 26 (con el máximo) está incompleta
+    by = {m.feature: m for m in done[24]}
+    assert by["score"].n_current == 400                  # las 300 de warmup no cuentan
+    for name, spec in [*ref["features"].items(), ("score", ref["score"])]:
+        values = [s for _, _, s, _ in w24] if name == "score" else [f[name] for _, f, _, _ in w24]
+        expected = independent_psi(spec, np.round(values, 5) if name == "score" else values)
+        assert by[name].psi == pytest.approx(expected, abs=1e-9), name
+    db = {(r[0], r[1]): float(r[2]) for r in stored(pg)}
+    assert db[(psi.window_bounds(EPOCH, 24)[0], "a")] == pytest.approx(by["a"].psi, abs=1e-6)
+    assert alerts(done) == {(25, "a"), (25, "score")}
+
+
+def test_job_is_idempotent_and_recompute_rewrites_the_same_rows(pg, ref):
+    pg.reset()
+    insert_rows(pg, rows_for(ref, 24, 0) + rows_for(ref, 25, 1) + rows_for(ref, 26, 0, n=10))
+    with pg.connect() as conn:
+        first = psi.run(conn, ref, EPOCH)
+        before = stored(pg)
+        again = psi.run(conn, ref, EPOCH)
+        assert again == {}                                # nada pendiente
+        assert stored(pg) == before
+        psi.run(conn, ref, EPOCH, recompute=True)
+    assert stored(pg) == before and len(before) == 2 * (len(ref["features"]) + 1) and sorted(first) == [24, 25]
+
+
+def test_a_new_window_reads_the_previous_one_from_the_table(pg, ref):
+    pg.reset()
+    insert_rows(pg, rows_for(ref, 24, 3, seed=5) + rows_for(ref, 25, 0, n=5))
+    with pg.connect() as conn:
+        assert alerts(psi.run(conn, ref, EPOCH)) == set()
+    insert_rows(pg, rows_for(ref, 25, 3, seed=6) + rows_for(ref, 26, 0, n=5))
+    with pg.connect() as conn:
+        done = psi.run(conn, ref, EPOCH)
+    assert sorted(done) == [25] and alerts(done) == {(25, "a"), (25, "score")}
+
+
+def test_ml_job_cannot_read_core(pg):
+    import psycopg
+
+    with pg.connect() as conn, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        conn.execute("SELECT * FROM core.accounts")
+
+
+# --- referencia ----------------------------------------------------------------------------------------------------
+
+
+class Model:
+    def predict_proba(self, X):
+        p = 1 / (1 + np.exp(-(X[:, 0] - 2)))
+        return np.column_stack([1 - p, p])
+
+    class _Step:
+        coef_ = np.array([[0.5, -2.0, 0.1]])
+
+    def __getitem__(self, i):
+        return self._Step()
+
+
+def synthetic_train(n=3000, seed=3):
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame({"step": rng.integers(1, 401, n), "partition": "train", "x": rng.normal(0, 1, n),
+                         "y": rng.integers(0, 4, n).astype(float), "z": np.zeros(n)})
+
+
+def test_reference_is_deterministic_and_aggregate_only():
+    thresholds = {"feature_order": ["x", "y", "z"], "model_version": "m/1", "model_sha256": "abc", "feature_set": "A"}
+    a = reference.build_reference(synthetic_train(), Model(), "logreg", thresholds, seed=42)
+    b = reference.build_reference(synthetic_train(), Model(), "logreg", thresholds, seed=42)
+    assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+    assert a["top_features"] == ["y", "x", "z"] and a["features"]["z"]["degenerate"]
+    assert a["features"]["y"]["kind"] == "categorical" and a["features"]["x"]["n_bins"] == 10
+    assert set(a) >= {"model_sha256", "top_features", "features", "score"}
+    assert "rows" not in json.dumps(a) and "occurred_at" not in json.dumps(a)
+
+
+def test_top_features_break_ties_by_name():
+    assert reference.top_features({"b": 1.0, "a": 1.0, "c": 3.0, "d": 0.5, "e": 0.1, "f": 0.0}) == ["c", "a", "b", "d", "e"]
+
+
+def test_psi_reference_command_reads_only_train(monkeypatch):
+    seen = {}
+
+    def fake_load(feature_set, partitions, columns=None, allow_test=False):
+        seen["partitions"] = partitions
+        raise RuntimeError("detener aquí")
+
+    monkeypatch.setattr(reference.modeling, "load_features", fake_load)
+    monkeypatch.setattr("verabank_ml.export.load_alias", lambda client, cfg, alias: ("xgb", "fraud-xgb", "6", None))
+    monkeypatch.setattr(reference.tracking, "setup", lambda cfg: None)
+    monkeypatch.setattr(reference, "THRESHOLDS_PATH", ARTIFACTS / "thresholds.json")
+    thresholds = json.loads((ARTIFACTS / "thresholds.json").read_text())
+    monkeypatch.setattr("verabank_ml.export.load_alias",
+                        lambda client, cfg, alias: ("xgb", *thresholds["model_version"].split("/"), None))
+    with pytest.raises(RuntimeError, match="detener aquí"):
+        reference.psi_reference_command([])
+    assert seen["partitions"] == ("train",)
+
+
+def test_artifact_reference_belongs_to_the_current_champion_and_is_in_the_manifest():
+    """Si cambia el champion hay que regenerar psi_reference.json (make ml-psi-ref)."""
+    ref = json.loads((ARTIFACTS / "psi_reference.json").read_text())
+    thresholds = json.loads((ARTIFACTS / "thresholds.json").read_text())
+    manifest = json.loads((ARTIFACTS / "manifest.json").read_text())
+    assert ref["model_sha256"] == thresholds["model_sha256"] and ref["model_version"] == thresholds["model_version"]
+    entry = manifest["artifacts"]["psi_reference.json"]
+    assert entry["sha256"] == hashlib.sha256((ARTIFACTS / "psi_reference.json").read_bytes()).hexdigest()
+    assert entry["model_sha256"] == thresholds["model_sha256"]
+    assert list(ref["features"]) == thresholds["feature_order"] and len(ref["top_features"]) == 5
+    assert ref["partition"] == "train" and ref["train_steps"][1] <= 400
+    for spec in [*ref["features"].values(), ref["score"]]:
+        assert len(spec["expected"]) == spec["n_bins"] and min(spec["expected"]) >= 1e-4

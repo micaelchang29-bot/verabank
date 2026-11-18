@@ -10,6 +10,8 @@ from verabank_ml.eval_test import eval_test_command
 from verabank_ml.export import export_command
 from verabank_ml.features import features_command
 from verabank_ml.fixtures import fixtures_command
+from verabank_ml.monitor.psi import psi_command
+from verabank_ml.monitor.reference import psi_reference_command
 from verabank_ml.paysim import check_paysim
 from verabank_ml.report import report_command
 from verabank_ml.train import train_command
@@ -20,6 +22,8 @@ COMMANDS: dict[str, Callable[[list[str]], int]] = {
     "export": export_command,
     "features": features_command,
     "fixtures": fixtures_command,
+    "psi": psi_command,
+    "psi-reference": psi_reference_command,
     "report": report_command,
     "train": train_command,
 }
