@@ -41,6 +41,9 @@ if errores:
 print(f"{payloads} payloads y el envelope correctos")
 PYEOF
 
+echo "== ejemplos de eventos (sobre + payload) y los 14 event_type de §3.3"
+"$PY" -I validate_examples.py
+
 echo "== OpenAPI 3.1"
 "$PY" -m openapi_spec_validator openapi.yaml
 

@@ -1,0 +1,13 @@
+{
+  "event_id": "4521116e-c7a1-5290-9964-b4f07099f6ca",
+  "event_type": "TransferRejected",
+  "schema_version": 1,
+  "aggregate_id": "b2d6f7b7-68e5-5a14-ab2b-5b84f08c5d12",
+  "occurred_at": "2026-01-24T22:00:00Z",
+  "emitted_at": "2026-11-17T12:00:00.123Z",
+  "correlation_id": "2dac0fd9-b2b2-5a55-9ac6-64f4ce55c981",
+  "payload": {
+    "transfer_id": "b2d6f7b7-68e5-5a14-ab2b-5b84f08c5d12",
+    "reason": "RISK_BLOCK"
+  }
+}

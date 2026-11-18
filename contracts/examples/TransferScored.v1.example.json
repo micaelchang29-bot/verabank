@@ -1,0 +1,17 @@
+{
+  "event_id": "53c59387-c24e-5198-9c61-1a927dfa34c3",
+  "event_type": "TransferScored",
+  "schema_version": 1,
+  "aggregate_id": "b2d6f7b7-68e5-5a14-ab2b-5b84f08c5d12",
+  "occurred_at": "2026-01-24T22:00:00Z",
+  "emitted_at": "2026-11-17T12:00:00.123Z",
+  "correlation_id": "2dac0fd9-b2b2-5a55-9ac6-64f4ce55c981",
+  "payload": {
+    "transfer_id": "b2d6f7b7-68e5-5a14-ab2b-5b84f08c5d12",
+    "score": 0.12345,
+    "decision": "APPROVE",
+    "decision_source": "MODEL",
+    "model_version": "fraud-xgb/6",
+    "latency_ms": 7
+  }
+}

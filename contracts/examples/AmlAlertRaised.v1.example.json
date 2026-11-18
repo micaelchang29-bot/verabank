@@ -1,0 +1,22 @@
+{
+  "event_id": "eb89f8a9-6e3a-5780-9273-56d4ab055010",
+  "event_type": "AmlAlertRaised",
+  "schema_version": 1,
+  "aggregate_id": "45c063a6-405d-58aa-b2d9-4f23560befdf",
+  "occurred_at": "2026-01-24T22:00:00Z",
+  "emitted_at": "2026-11-17T12:00:00.123Z",
+  "correlation_id": "2dac0fd9-b2b2-5a55-9ac6-64f4ce55c981",
+  "payload": {
+    "alert_id": "45c063a6-405d-58aa-b2d9-4f23560befdf",
+    "rule_code": "THRESHOLD",
+    "rule_version": 1,
+    "severity": "MEDIUM",
+    "subject_account_id": "162f7558-dfa1-5812-9f31-394adb47c281",
+    "transfer_ids": [
+      "b2d6f7b7-68e5-5a14-ab2b-5b84f08c5d12"
+    ],
+    "total_amount": "12500.00",
+    "window_start": "2026-01-24T22:00:00Z",
+    "window_end": "2026-01-24T22:00:00Z"
+  }
+}

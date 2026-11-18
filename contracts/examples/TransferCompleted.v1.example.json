@@ -1,0 +1,20 @@
+{
+  "event_id": "ad0ca906-7ae0-515d-aa94-8e9b6a020b24",
+  "event_type": "TransferCompleted",
+  "schema_version": 1,
+  "aggregate_id": "b2d6f7b7-68e5-5a14-ab2b-5b84f08c5d12",
+  "occurred_at": "2026-01-24T22:00:00Z",
+  "emitted_at": "2026-11-17T12:00:00.123Z",
+  "correlation_id": "2dac0fd9-b2b2-5a55-9ac6-64f4ce55c981",
+  "payload": {
+    "transfer_id": "b2d6f7b7-68e5-5a14-ab2b-5b84f08c5d12",
+    "source_account_id": "162f7558-dfa1-5812-9f31-394adb47c281",
+    "dest_external_ref": "PS-M1979787155",
+    "dest_country": "PE",
+    "rail": "EXTERNAL",
+    "transfer_type": "TRANSFER",
+    "amount": "1250.00",
+    "currency": "PEN",
+    "completed_at": "2026-01-24T22:00:01Z"
+  }
+}
