@@ -13,6 +13,7 @@ from verabank_ml.fixtures import fixtures_command
 from verabank_ml.monitor.psi import psi_command
 from verabank_ml.monitor.reference import psi_reference_command
 from verabank_ml.paysim import check_paysim
+from verabank_ml.reasons import reasons_command
 from verabank_ml.report import report_command
 from verabank_ml.train import train_command
 
@@ -24,6 +25,7 @@ COMMANDS: dict[str, Callable[[list[str]], int]] = {
     "fixtures": fixtures_command,
     "psi": psi_command,
     "psi-reference": psi_reference_command,
+    "reasons": reasons_command,
     "report": report_command,
     "train": train_command,
 }

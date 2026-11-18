@@ -294,3 +294,14 @@ make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–672
   en la ventana y en la anterior contigua. Upsert por `(window_start, feature)`; `--fail-on-alert` sale con 2.
 - Con la referencia actual (champion `fraud-xgb/6`): `top_features` = `type_PAYMENT`, `dst_seen_before`,
   `type_CASH_OUT`, `type_TRANSFER`, `log_amount`; `is_new_beneficiary` es degenerada (constante en train).
+
+## Razones de fraude (fase 5, §5e, D6)
+
+`make ml-reasons [ARGS=--limit N]` (`verabank_ml/reasons.py`, rol `ml_job`) escribe tres filas por caso en
+`analytics.fraud_reasons`. Casos: `decision` `REVIEW` o `BLOCK` de `risk.scoring_log`, sin `warmup` y decididos por el
+mismo modelo que el alias `champion` (los de otra versión se cuentan como omitidos; el fallback no deja fila). Con
+XGBoost, SHAP con `shap.TreeExplainer` en log-odds (la suma más el valor base reproduce el margen; el valor base sale
+del sesgo de `pred_contribs`, porque `TreeExplainer.expected_value` ignora `base_score` de XGBoost 3 hasta la primera
+llamada a `shap_values`); con la logística, coeficiente × valor estandarizado. Se guardan las tres de mayor
+contribución absoluta (desempate por nombre) con su signo. `explain(model, X)` es pura y común a los dos modelos.
+Idempotente: no recalcula los casos que ya tienen razones de la misma `model_version`.
