@@ -97,20 +97,21 @@ ml-report: ## Ablación B (solo valid) y ml/reports/model-report.md
 ml-export: ## ONNX del champion y del challenger, golden.jsonl, thresholds.json y manifest.json (ml/artifacts/)
 	@uv run --project ml --frozen python -m verabank_ml export
 
-ml-psi-ref: ## Referencia del PSI desde train (ml/artifacts/psi_reference.json, hash en manifest.json); tras cambiar el champion
-	@MLFLOW_DISABLE_AGENT_HINT=1 uv run --project ml --frozen python -m verabank_ml psi-reference
+ml-psi-ref: ## Referencias del PSI: train (psi_reference.json, §5f) y valid (psi_reference_valid.json); hashes en manifest.json; tras cambiar el champion
+	@MLFLOW_DISABLE_AGENT_HINT=1 uv run --project ml --frozen python -m verabank_ml psi-reference --partition train
+	@MLFLOW_DISABLE_AGENT_HINT=1 uv run --project ml --frozen python -m verabank_ml psi-reference --partition valid
 
-psi: ## PSI de las ventanas completas pendientes en analytics.drift_metrics (rol ml_job): make psi [ARGS=--recompute|--fail-on-alert]
+psi: ## PSI de las ventanas completas pendientes en analytics.drift_metrics (rol ml_job): make psi [ARGS="--reference valid --recompute --fail-on-alert"] (por defecto --reference train)
 	@scripts/ml-job.sh psi $(ARGS)
 
 ml-reasons: ## Tres razones por caso REVIEW/BLOCK del modelo en analytics.fraud_reasons (SHAP o coeficiente; rol ml_job) [ARGS=--limit N]
 	@scripts/ml-job.sh reasons $(ARGS)
 
-retrain: ## Reentrena la familia del champion con scoring_log ⨝ fraud_labels maduras → alias challenger y ml/artifacts/challenger/ [REASON=manual]
-	@scripts/ml-job.sh retrain --reason $(REASON)
+retrain: ## Reentrena la familia del champion con scoring_log ⨝ fraud_labels maduras → alias challenger y ml/artifacts/challenger/ [REASON=manual] [FORCE=1: salta la guarda del reloj]
+	@scripts/ml-job.sh retrain --reason $(REASON) $(if $(FORCE),--force)
 
-retrain-check: ## Disparadores del reentrenamiento: alerta de drift vigente, caída de recall > 5 puntos, > 30 días simulados
-	@scripts/ml-job.sh retrain --check
+retrain-check: ## Disparadores del reentrenamiento: alerta de drift vigente, caída de recall > 5 puntos, > 30 días simulados [FORCE=1]
+	@scripts/ml-job.sh retrain --check $(if $(FORCE),--force)
 
 promote: ## Promueve el challenger si en sombra baja el costo ≥ 2 % sin empeorar el recall; reexporta (D8)
 	@scripts/ml-job.sh promote --confirm
@@ -118,8 +119,8 @@ promote: ## Promueve el challenger si en sombra baja el costo ≥ 2 % sin empeor
 rollback: ## Vuelve al previous_champion y reexporta
 	@scripts/ml-job.sh rollback --confirm
 
-drift-demo: ## DESTRUCTIVO (CONFIRM=yes): reset, tanda base 577–624, PSI, deriva 625–672 × 3, PSI y alertas [DEMO_TPS=100]
-	@CONFIRM=$(CONFIRM) DEMO_TPS=$(DEMO_TPS) scripts/drift-demo.sh
+drift-demo: ## DESTRUCTIVO (CONFIRM=yes): reset, tanda base 577–624, PSI (valid; train como hallazgo), deriva 625–672 × 3 y alertas [DEMO_TPS=100] [FORCE=1]
+	@CONFIRM=$(CONFIRM) DEMO_TPS=$(DEMO_TPS) FORCE=$(FORCE) scripts/drift-demo.sh
 
 ml-fixtures: ## Escenarios de features con respuesta conocida en contracts/fixtures/feature_scenarios.json (sin datos)
 	@uv run --project ml --frozen python -m verabank_ml fixtures
@@ -186,7 +187,8 @@ settle: ## Espera a que no queden PENDING ni PROCESSING (rol BI): make settle [A
 reset-data: ## DESTRUCTIVO: docker compose down -v (borra PostgreSQL, Kafka, rail y Metabase); exige CONFIRM=yes
 	@CONFIRM=$(CONFIRM) scripts/reset-data.sh
 
-bi-seed: ## Siembra para BI: replay de STEPS (96) pasos desde el 577 a BI_TPS (100) y settle con aprobación de revisiones
+bi-seed: ## Siembra para BI: replay de STEPS (96) pasos desde el 577 a BI_TPS (100) y settle con aprobación de revisiones [FORCE=1: salta la guarda del reloj]
+	@scripts/ml-job.sh clock-guard $(if $(FORCE),--force)
 	@scripts/sim.sh replay --steps $(STEPS) --first-step 577 --tps $(BI_TPS)
 	@scripts/sim.sh settle --approve-reviews --timeout $(SETTLE_TIMEOUT)
 
