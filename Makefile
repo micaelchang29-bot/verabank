@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed bi-init bi-up bi-check bi-url test-bi
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -11,7 +11,7 @@ up: ## Todo en Compose: core + risk + sim (transfer-service remoto, risk-scoring
 	@scripts/up.sh
 
 down: ## Detiene todo el Compose (conserva los volúmenes)
-	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" ML_JOB_PASSWORD="$${ML_JOB_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim down
+	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" ML_JOB_PASSWORD="$${ML_JOB_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim --profile bi down
 
 up-core: ## Compose (perfil core), tópicos, transfer-service en SERVER_PORT (8081) y semilla
 	@scripts/up-core.sh
@@ -22,7 +22,7 @@ stop-core: ## Detiene transfer-service
 down-core: stop-core ## Detiene transfer-service y el compose (conserva los volúmenes)
 	@# down no necesita las contraseñas, pero Compose interpola docker-compose.yml entero y las exige: con valores
 	@# ficticios solo aquí, la limpieza funciona aunque .env esté incompleto o el arranque haya fallado.
-	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" ML_JOB_PASSWORD="$${ML_JOB_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim down
+	@VERABANK_API_KEYS="$${VERABANK_API_KEYS:-unused}" RISK_SVC_PASSWORD="$${RISK_SVC_PASSWORD:-unused}" SIM_LOADER_PASSWORD="$${SIM_LOADER_PASSWORD:-unused}" ML_JOB_PASSWORD="$${ML_JOB_PASSWORD:-unused}" docker compose --profile core --profile risk --profile sim --profile bi down
 
 test-core: ## Compila y prueba transfer-service (JUnit 5 + Testcontainers)
 	@cd transfer-service && ./mvnw -B verify
@@ -163,6 +163,22 @@ reset-data: ## DESTRUCTIVO: docker compose down -v (borra PostgreSQL, Kafka, rai
 bi-seed: ## Siembra para BI: replay de STEPS (96) pasos desde el 577 a BI_TPS (100) y settle con aprobación de revisiones
 	@scripts/sim.sh replay --steps $(STEPS) --first-step 577 --tps $(BI_TPS)
 	@scripts/sim.sh settle --approve-reviews --timeout $(SETTLE_TIMEOUT)
+
+# BI (fase 5, D9): Metabase en el perfil bi, base de aplicación propia y dashboard creado por API (bi/README.md).
+bi-init: ## Crea (idempotente) la base metabase y el rol metabase_app con METABASE_DB_PASSWORD de .env
+	@db/scripts/create-metabase-db.sh
+
+bi-up: ## Metabase (perfil bi), bi-init y bi/setup_metabase.py: conexión verabank_bi, 7 tarjetas y el dashboard
+	@scripts/bi-up.sh
+
+bi-check: ## Consulta cada tarjeta por POST /api/card/:id/query: filas y las 3 primeras
+	@scripts/bi-up.sh --check
+
+bi-url: ## URL de Metabase y del dashboard VeraBank — Riesgo
+	@scripts/bi-up.sh --url
+
+test-bi: ## Pruebas de bi/ (parser de docs/kpis.sql e idempotencia del script, API simulada)
+	@uv run --project bi --frozen pytest bi/tests
 
 fallback-demo: ## Para risk-scoring, replay N=500 (todo FALLBACK) y comprueba que al volver vuelve MODEL
 	@scripts/fallback-demo.sh
