@@ -272,9 +272,9 @@ del repositorio mantiene su propia licencia.
 ## Monitoreo de drift (fase 5, §5f, D1 y D2)
 
 ```bash
-make ml-psi-ref                  # ml/artifacts/psi_reference.json desde train; hash en manifest.json
-make psi [ARGS=--recompute]      # ventanas completas pendientes → analytics.drift_metrics (rol ml_job)
-make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–672 con montos × 3
+make ml-psi-ref                  # psi_reference.json (train) y psi_reference_valid.json (valid); hashes en manifest.json
+make psi [ARGS=--reference valid --recompute]   # ventanas completas pendientes → analytics.drift_metrics (rol ml_job)
+make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–672 con montos × 3, referencia valid
 ```
 
 - **Referencia** (`monitor/reference.py`): solo la partición `train` (pasos 1–400) de `features_A.parquet`; solo
@@ -284,6 +284,13 @@ make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–672
   200.000 filas de train; `|coef·desv|` si sirviera la logística), `model_version` y `model_sha256`. Hay que
   regenerarla al cambiar el champion: `ml-export` solo conserva su entrada en el manifiesto si es del mismo
   `model_sha256`, y `tests/test_psi.py` lo exige.
+- **Segunda referencia, `valid`** (`psi-reference --partition valid`, `psi --reference valid`): mismos bins y reglas,
+  pero con la partición de validación (pasos 425–550, ya en el régimen posterior al cambio cercano al paso 400) y su
+  propio archivo, `psi_reference_valid.json`, con su hash en `manifest.json`. Hereda los `top_features` de la de train,
+  así que ambas vigilan lo mismo. **Por defecto sigue siendo `train`** (§5f); `make ml-psi-ref` genera las dos y
+  `promote`/`rollback` también. Cada fila de `analytics.drift_metrics` lleva su `reference` (parte de la clave) y la
+  alerta de dos ventanas contiguas solo compara filas de la misma referencia. La demo usa `valid` y muestra el PSI
+  contra `train` como hallazgo: ver ADR-13, D3 (umbral 0,25, ventanas y top-5 no cambian).
 - **Bins**: 10 por deciles con bordes únicos (`(borde[i-1], borde[i]]`); ≤ 10 valores distintos: uno por valor más
   «otro»; un solo bin ⇒ `degenerate`, PSI 0. Proporciones acotadas a ≥ 1e-4, sin renormalizar;
   PSI = Σ (a − e)·ln(a/e). Los valores se redondean a 9 decimales antes de binarizar (Java y Python difieren en el
@@ -291,7 +298,13 @@ make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–672
 - **Ventanas** (`monitor/psi.py`): la `k` cubre los pasos `[24k+1, 24k+24]` (la 24 es 577–600). Filas de
   `risk.scoring_log` sin `warmup`. Completa si hay filas con `occurred_at >= window_end` (la última ventana con datos
   nunca lo está). Menos de 200 filas ⇒ `insufficient`. `alert` solo para `score` y las `top_features`, con PSI > 0,25
-  en la ventana y en la anterior contigua. Upsert por `(window_start, feature)`; `--fail-on-alert` sale con 2.
+  en la ventana y en la anterior contigua (de la misma referencia). Upsert por `(window_start, feature, reference)`;
+  `--fail-on-alert` sale con 2.
+- **Guarda del reloj** (`clock_guard.py`, `make` → `scripts/ml-job.sh clock-guard`): `bi-seed`, `drift-demo` y `retrain`
+  (también `retrain-check`) abortan si `risk.scoring_log` tiene transferencias con `occurred_at` fuera de `sim_epoch` a
+  `sim_epoch` + 744 h (sin contar las sintéticas `perf-` de k6). **`make smoke`, `make demo-idempotency` y
+  `make load-transfers` envían `occurred_at` de hoy y requieren su propia base** (`make reset-data CONFIRM=yes`
+  antes de la demo, de la siembra de BI o del reentrenamiento). `FORCE=1` (`--force`) la salta.
 - Con la referencia actual (champion `fraud-xgb/6`): `top_features` = `type_PAYMENT`, `dst_seen_before`,
   `type_CASH_OUT`, `type_TRANSFER`, `log_amount`; `is_new_beneficiary` es degenerada (constante en train).
 

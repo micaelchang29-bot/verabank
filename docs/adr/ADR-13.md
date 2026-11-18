@@ -22,6 +22,12 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   redondeado a 5 decimales como en `scoring_log`. `top_features`: 5 de mayor SHAP medio absoluto (TreeSHAP exacto
   sobre 200.000 filas de entrenamiento elegidas con la semilla) o `|coef·desv|` con la logística. Los valores se
   redondean a 9 decimales antes de binarizar.
+- **Segunda referencia (`valid`).** `psi-reference --partition valid` y `psi --reference valid` construyen bordes,
+  proporciones y score de referencia con la partición de validación (pasos 425–550) con las mismas reglas, en
+  `psi_reference_valid.json` (hash propio en `manifest.json`) y con los mismos `top_features` que la de train. Por
+  defecto sigue siendo `train` (§5f). Cada fila de `analytics.drift_metrics` lleva `reference` (migración V6, dentro de
+  la clave; las filas previas pasan a `train`) y la regla de dos ventanas contiguas solo compara filas de la misma
+  referencia. `promote`, `rollback` y `make ml-psi-ref` regeneran las dos.
 - Consecuencias: el mismo código binariza la referencia y cada ventana. Cambiar de champion obliga a regenerar la
   referencia (`ml-export` solo conserva su entrada en el manifiesto si es del mismo `model_sha256`, y una prueba lo
   exige). El redondeo a 9 decimales evita que la diferencia de último bit entre Java y Python en `hour_sin`/`hour_cos`
@@ -52,6 +58,20 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   = ventanas 577–624, deriva = 625–672 (la ventana 601–624 de la base solo se completa con la tanda de deriva). Si la
   base alerta o la deriva no, la demo se detiene con código 1 y muestra las tablas de PSI por feature y ventana: no se
   cambian umbral, referencia, ventanas ni top-5 sin decisión explícita.
+- **Actualización (referencia `valid` y guarda del reloj).** `make drift-demo` calcula el PSI contra `valid` y exige
+  con ella: base sin alertas y deriva con alertas; contra `train` imprime la misma tabla como hallazgo, sin criterio de
+  aceptación. Umbral 0,25, ventanas de 24 pasos, regla de dos ventanas y top-5 **no se tocan**: subir el umbral para que
+  la base no alerte sería ajustar el criterio a la demo. `bi-seed`, `drift-demo` y `retrain` abortan si hay
+  transferencias con `occurred_at` fuera de `sim_epoch` a `sim_epoch` + 744 h (`--force`/`FORCE=1` la salta).
+- **Hallazgo contra `train`.** La causa que se suponía (cambio de régimen cerca del paso 400) no basta para explicarlo:
+  en la ventana 577–600 de la base de desarrollo, `dst_seen_before = 1` es el 4,4 % de las filas (1.915 de 43.825),
+  frente al 45,9 % de la referencia de train y el 43,1 % de la de valid. El replay carga solo 24 pasos de calentamiento
+  (4/D1, «desajuste de historia heredado»), así que las features de historia y el score ven mucha menos historia que
+  en el entrenamiento offline. Esa base está además contaminada (pasos repetidos por siembras aditivas y filas con reloj
+  real), de modo que no sirve como línea base. Sobre ella, `valid` da PSI del score 1,12 y de `dst_seen_before` 1,09 en
+  577–600: **no resuelve la alerta**. Si en una base limpia ocurre lo mismo, la demo debe terminar en STOP y la decisión
+  de fondo (calentamiento más largo en el replay o referencia construida con la misma historia truncada) es del
+  usuario. La corrida limpia (`make drift-demo CONFIRM=yes`) no se ejecutó en esta sesión.
 - Consecuencias: sobre la base de la fase 4, la ventana 577–600 ya da PSI del score 1,17 y de `dst_seen_before` 1,03,
   y la 601–624 da 0,66 y 0,71: con la regla de D2 la **base alerta**, y la demo, tal como está definida, debe parar en
   el STOP. Es el cambio de régimen previsto, no un error del job. Queda pendiente de decisión (ver «Límites
@@ -157,9 +177,9 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 
 ## Límites conocidos
 
-- **PSI de referencia de entrenamiento frente a un replay de otro régimen (D3).** La base de la demo alerta por sí
-  sola; decidir entre cambiar la referencia (p. ej., validación o el inicio del replay), el umbral o la línea base es
-  una decisión de diseño pendiente.
+- **PSI frente a un replay con historia recortada (D3).** Contra `train` la base de la demo alerta por sí sola, y la
+  evidencia apunta al calentamiento de 24 pasos más que al cambio de régimen; la referencia `valid` existe pero no se ha
+  comprobado en base limpia que baste. Pendiente de decisión.
 - **Verificador sin ancla externa (D5).**
 - **Desajuste de historia heredado en el reentrenamiento (D7, 4/D1).**
 - **Muestra sintética en la CI (D11).**

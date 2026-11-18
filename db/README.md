@@ -8,7 +8,7 @@ Una instancia de PostgreSQL con un esquema por servicio (ADR-09). El DDL es el d
 | `migrations/core` | transfer-service | `verabank_transfer` | V1–V8 |
 | `migrations/audit` | transfer-service | `verabank_transfer` | V9–V13 |
 | `migrations/risk` | risk-service (hasta la fase 4, `make migrate-risk`) | `verabank_risk` | V1–V10 |
-| `migrations/analytics` | `make migrate-analytics` (fase 5) | rol de arranque (`POSTGRES_USER`) | V1–V5 |
+| `migrations/analytics` | `make migrate-analytics` (fase 5) | rol de arranque (`POSTGRES_USER`) | V1–V6 |
 
 `core` y `audit` las ejecuta el mismo servicio en una sola corrida de Flyway, así que sus
 números de versión no se repiten entre los dos directorios.
@@ -31,6 +31,12 @@ esquema de otro. `verabank_bi` solo lee lo que cree el rol de arranque, es decir
 
 ## Esquema `analytics` (fase 5)
 
+> **Reloj simulado.** `make smoke`, `make demo-idempotency` y `make load-transfers` crean transferencias con
+> `occurred_at` de hoy, fuera del rango simulado (`sim_epoch` a `sim_epoch` + 744 h) que usan el replay, el PSI y el
+> reentrenamiento. Mezcladas con un replay, descuadran las ventanas del PSI, la madurez de las etiquetas y los
+> disparadores; por eso `make bi-seed`, `make drift-demo` y `make retrain` abortan si las encuentran (`FORCE=1` salta la
+> guarda). Esas tres corridas necesitan su propia base: `make reset-data CONFIRM=yes` antes de cambiar de una a otra.
+
 `make migrate-analytics` (Flyway con el rol de arranque, historial en `flyway_analytics`) corre después de las
 migraciones de `core`, `audit` y `risk` y antes de `make db-grants`; `make up` y `make up-core` lo ejecutan en ese
 orden.
@@ -42,6 +48,7 @@ orden.
 | V3 | `analytics.drift_metrics` | PSI por ventana y feature (o `score`); PK `(window_start, feature)`; índice parcial `ix_drift_alert` sobre `window_start DESC` donde `alert`. |
 | V4 | `analytics.fraud_reasons` | Tres razones por caso `REVIEW`/`BLOCK` del modelo; PK `(transfer_id, rank)`, `rank` 1..3. |
 | V5 | `audit.verify_chain(p_from)` | Verificador de la cadena de auditoría (T-16), ver más abajo. |
+| V6 | `analytics.drift_metrics.reference` | Referencia del PSI (`train` por defecto o `valid`), dentro de la clave: PK `(window_start, feature, reference)`. Las filas existentes pasan a `train`. |
 
 Sobre la vista:
 
@@ -171,7 +178,7 @@ inserta y encadena el hash; `sim_loader` solo inserta en `scoring_log`; BI solo 
 `make load-country-risk` idempotentes; el CSV sin duplicados y solo con códigos alfa-2 reales.
 
 Fase 5 (`test_analytics.py`, `test_audit_chain.py`): migraciones de `analytics` desde cero y dos veces; la vista
-igual al texto de §4 y sin filas de `CLEARING`; columnas y claves de `drift_metrics` y `fraud_reasons`; `ml_job` y
+igual al texto de §4 y sin filas de `CLEARING`; columnas y claves de `drift_metrics` (V6 conserva las filas previas como `train` y admite las dos referencias) y `fraud_reasons`; `ml_job` y
 BI con exactamente sus permisos. T-16: `UPDATE` y `DELETE` fallan con el mensaje del trigger; un superusuario que
 desactiva el trigger y altera `detail` (o cualquier campo del hash) da `HASH_MISMATCH` en esa fila, un borrado da
 `GAP`, un `prev_hash` alterado `PREV_MISMATCH`; 20 hilos con 1.000 `audit.append` dejan la cadena íntegra y sin
