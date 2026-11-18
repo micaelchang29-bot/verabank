@@ -25,9 +25,9 @@ MIGRATIONS = ["risk/V1__create_schema_risk.sql", "risk/V2__scoring_log.sql", "ri
 
 
 def ml_job_grants() -> str:
-    """El bloque de ml_job de db/init/grants.sql, tal cual."""
+    """El bloque de ml_job de db/init/grants.sql (entre sus marcas >>> y <<<), tal cual."""
     text = (ROOT / "db/init/grants.sql").read_text()
-    return "\n".join(line for line in text.splitlines() if re.search(r"\bml_job\b", line) and not line.startswith("--"))
+    return re.search(r"^-- >>> ml_job.*?^-- <<< ml_job", text, re.S | re.M).group(0)
 
 
 class Postgres:

@@ -39,6 +39,7 @@ public final class PgInfra {
                 .withEnv("VERABANK_BI_PASSWORD", "bi-test-pw")
                 .withEnv("RISK_SVC_PASSWORD", SERVICE_PASSWORD)
                 .withEnv("SIM_LOADER_PASSWORD", "sim-loader-test-pw")
+                .withEnv("ML_JOB_PASSWORD", "ml-job-test-pw")
                 .withCopyFileToContainer(MountableFile.forHostPath(init.resolve("initdb.d/10-roles.sh"), 0755),
                         "/docker-entrypoint-initdb.d/10-roles.sh")
                 .withCopyFileToContainer(MountableFile.forHostPath(init.resolve("initdb.d/20-roles-runtime.sh"), 0755),

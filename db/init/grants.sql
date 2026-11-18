@@ -30,14 +30,22 @@ GRANT USAGE ON SCHEMA risk TO verabank_bi;
 GRANT SELECT ON ALL TABLES IN SCHEMA risk TO verabank_bi;
 ALTER DEFAULT PRIVILEGES FOR ROLE verabank_risk IN SCHEMA risk GRANT SELECT ON TABLES TO verabank_bi;
 
--- ml_job (fase 5): lee la bitácora de scoring y las etiquetas; escribe solo sus dos tablas de analytics.
--- Las tablas de analytics las crea el rol de arranque (make migrate-analytics), antes de este script.
+-- >>> ml_job (fase 5): lee la bitácora de scoring y las etiquetas; escribe solo sus dos tablas de analytics.
+-- Las tablas de analytics las crea el rol de arranque (make migrate-analytics, antes de este script). Donde analytics no
+-- está migrado (pruebas de risk-service) esa parte se omite. ml/tests/pgdb.py aplica este bloque tal cual.
 GRANT USAGE ON SCHEMA risk TO ml_job;
 GRANT SELECT ON risk.scoring_log, risk.fraud_labels TO ml_job;
-GRANT USAGE ON SCHEMA analytics TO ml_job;
-GRANT SELECT, INSERT, UPDATE ON analytics.drift_metrics, analytics.fraud_reasons TO ml_job;
-
--- El historial de Flyway de analytics lo crea el rol de arranque, así que los privilegios por defecto de
--- db/init/roles.sql se lo abrirían a BI: no es un dato de negocio.
-REVOKE ALL ON ALL TABLES IN SCHEMA flyway_analytics FROM verabank_bi;
-REVOKE ALL ON SCHEMA flyway_analytics FROM verabank_bi;
+DO $$
+BEGIN
+  IF to_regclass('analytics.drift_metrics') IS NOT NULL AND to_regclass('analytics.fraud_reasons') IS NOT NULL THEN
+    GRANT USAGE ON SCHEMA analytics TO ml_job;
+    GRANT SELECT, INSERT, UPDATE ON analytics.drift_metrics, analytics.fraud_reasons TO ml_job;
+  END IF;
+  -- El historial de Flyway de analytics lo crea el rol de arranque, así que los privilegios por defecto de
+  -- db/init/roles.sql se lo abrirían a BI: no es un dato de negocio.
+  IF to_regnamespace('flyway_analytics') IS NOT NULL THEN
+    REVOKE ALL ON ALL TABLES IN SCHEMA flyway_analytics FROM verabank_bi;
+    REVOKE ALL ON SCHEMA flyway_analytics FROM verabank_bi;
+  END IF;
+END $$;
+-- <<< ml_job
