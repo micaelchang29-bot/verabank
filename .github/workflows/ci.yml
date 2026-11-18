@@ -1,12 +1,18 @@
-# CI de la fase 1: contratos, compilación y pruebas de transfer-service, pruebas del simulador, humo de ONNX del módulo ml, pruebas de db/ y humo con Compose.
-# Dimensionado para el runner estándar de 4 CPU y 16 GB: una JVM de pruebas (-Xmx1g) con
-# PostgreSQL y Kafka compartidos por toda la suite; el humo levanta el perfil core (≈ 2 GB).
+# CI completa de la fase 5 (docs/diseno.md §6, §7 Fase 5; ADR-13 D11). Runner estándar de 4 CPU y 16 GB.
+# Sin secretos: las credenciales del humo son efímeras y se generan en el job. La carga (T-17) y el caos no corren aquí.
+# El despliegue en kind no forma parte de este flujo (solo por workflow_dispatch, ADR-13 D12).
 name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, "fase-*"]
+    paths-ignore: &docs_only
+      - "docs/adr/**"
+      - "docs/resultados/**"
+      - "**/README.md"
+      - "CONTRIBUTING.md"
   pull_request:
+    paths-ignore: *docs_only
 
 permissions:
   contents: read
@@ -15,34 +21,72 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  UV_VERSION: "0.13.8"
+
 jobs:
-  contracts:
-    name: contratos
+  hygiene:
+    name: higiene (firmas, actionlint)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Pruebas del script de firmas (repositorios temporales)
+        run: .githooks/tests/test_check_signatures.sh
+      - name: Firmas en los commits del push o del PR y en el árbol
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            range="$BASE_SHA..HEAD"
+          elif [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            range="$(git merge-base origin/main HEAD)..$HEAD_SHA"
+          else
+            range="$BEFORE..$HEAD_SHA"
+          fi
+          echo "rango: $range"
+          .githooks/check-signatures.sh --range "$range" --tree .
+      - name: Firmas en la descripción del PR
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: .githooks/check-signatures.sh --env PR_BODY
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+
+  contracts:
+    name: contratos (esquemas, ejemplos, OpenAPI)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Herramientas de validación
         run: python -m pip install check-jsonschema==0.33.0 openapi-spec-validator==0.7.1 pyyaml==6.0.2
-      - name: contracts/validate.sh
+      - name: contracts/validate.sh (metaesquema 2020-12, 14 event_type de §3.3, ejemplos con sobre y payload, OpenAPI)
         run: PYTHON=python contracts/validate.sh
 
   transfer-service:
-    name: transfer-service (compilación y pruebas)
+    name: transfer-service (compilación, unitarias e integración)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       MAVEN_OPTS: -Xmx512m
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
+          cache-dependency-path: transfer-service/pom.xml
       - name: Imágenes de Testcontainers
         run: |
           docker pull -q postgres:16.16
@@ -52,21 +96,26 @@ jobs:
         run: ./mvnw -B -ntp verify
       - name: Informes de pruebas
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: surefire-reports
-          path: transfer-service/target/surefire-reports/
+          name: transfer-service-surefire-reports
+          path: transfer-service/target/*-reports/
           retention-days: 7
 
   risk-service:
-    name: risk-service (compilación, unitarias e integración con Testcontainers)
+    name: risk-service (compilación, unitarias, integración y T-13 Java)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       MAVEN_OPTS: -Xmx512m
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - name: Artefactos del modelo presentes (T-13 los lee de ml/artifacts)
+        run: |
+          for f in model.onnx thresholds.json manifest.json golden.jsonl golden_challenger.jsonl challenger/model.onnx; do
+            test -s "ml/artifacts/$f" || { echo "falta ml/artifacts/$f"; exit 1; }
+          done
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -76,125 +125,156 @@ jobs:
         run: |
           docker pull -q postgres:16.16
           docker pull -q apache/kafka:4.3.2
-      - name: "./mvnw verify (incluye el rol stream: reglas AML, consumidores, API de alertas y latencia)"
+      - name: ./mvnw verify (roles scoring y stream, paridad con golden.jsonl)
         working-directory: risk-service
         run: ./mvnw -B -ntp verify
       - name: Informes de pruebas
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: risk-service-surefire-reports
-          path: risk-service/target/surefire-reports/
+          path: risk-service/target/*-reports/
+          retention-days: 7
+
+  ml:
+    name: ml (ruff, pruebas sin datos, T-13 Python y humo sobre muestra sintética)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: ml
+    env:
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: ml/uv.lock
+      - name: uv sync --frozen
+        run: uv sync --frozen
+      - name: ruff check
+        run: uv run ruff check .
+      - name: Imagen de las pruebas con base de datos (PSI, razones)
+        run: docker pull -q postgres:16.16
+      - name: Artefactos, golden y escenarios de features (T-13 lado Python, sin datos)
+        run: uv run pytest tests/test_artifacts.py tests/test_golden.py tests/test_fixtures.py
+      - name: pytest sin datos (las pruebas con marcador data necesitan PaySim)
+        run: uv run pytest -m "not data"
+      - name: Humo de extremo a extremo sobre 50.000 filas SINTÉTICAS con el esquema de PaySim (no se descarga nada)
+        run: uv run python -m verabank_ml smoke --rows 50000 --out "$RUNNER_TEMP/ml-smoke"
+      - name: Salida del humo
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ml-smoke
+          path: ${{ runner.temp }}/ml-smoke/smoke.json
           retention-days: 7
 
   simulator:
-    name: simulador (pruebas unitarias del rail, chaos y amlgen)
+    name: simulador (unitarias)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
         working-directory: simulator
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.13.8"
-      - name: uv sync --frozen
-        run: uv sync --frozen
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: simulator/uv.lock
       - name: pytest sin integración (esa necesita Kafka; ver make test-rail-it)
-        run: uv run pytest -m "not integration"
+        run: uv run --frozen pytest -m "not integration"
 
-  ml:
-    name: ml (humo de conversión a ONNX)
+  bi:
+    name: bi (parser de KPIs e idempotencia del script de Metabase)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: ml
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.13.8"
-      - name: uv sync --frozen
-        run: uv sync --frozen
-      - name: ruff check
-        run: uv run ruff check .
-      - name: paridad de artefactos y escenarios de features, T-13 lado Python (sin datos)
-        run: uv run pytest tests/test_artifacts.py tests/test_golden.py tests/test_fixtures.py
-      - name: pytest sin datos (las pruebas con marcador data necesitan PaySim)
-        run: uv run pytest -m "not data"
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: bi/uv.lock
+      - name: pytest bi/tests
+        run: uv run --project bi --frozen pytest bi/tests
 
   db:
-    name: db (migraciones, roles, permisos y semillas)
+    name: db (migraciones, roles, T-16 y KPIs)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.13.8"
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: db/uv.lock
       - name: Imágenes de las pruebas (PostgreSQL y Flyway, como transfer-service)
         run: |
           docker pull -q postgres:16.16
           docker pull -q flyway/flyway:11.7.2
-      - name: pytest db/tests (entorno propio de db/, uv sync --frozen)
+      - name: pytest db/tests (incluye T-16 y los KPIs de §5g calculados a mano)
         run: uv run --project db --frozen pytest db/tests
 
-  smoke:
-    name: humo (make up-core, demo-idempotency, reconcile)
-    needs: [contracts, transfer-service]
+  compose-smoke:
+    name: humo con Compose (core, risk, sim; make smoke, make reconcile)
+    needs: [contracts, transfer-service, risk-service]
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      SERVER_PORT: "8081"
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Imágenes con caché de capas (risk-service, transfer-service, rail-sim)
+        run: |
+          for spec in "risk-service/Dockerfile verabank/risk-service:dev risk" \
+                      "transfer-service/Dockerfile verabank/transfer-service:dev transfer" \
+                      "simulator/Dockerfile verabank/rail-sim:dev rail"; do
+            read -r file tag scope <<<"$spec"
+            docker buildx build --load -f "$file" -t "$tag" \
+              --cache-from "type=gha,scope=$scope" --cache-to "type=gha,mode=max,scope=$scope" .
+          done
+      - uses: astral-sh/setup-uv@v10
         with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-      - name: .env efímero
+          version: ${{ env.UV_VERSION }}
+      - name: .env efímero (copia de .env.example con credenciales aleatorias, enmascaradas)
         run: |
           rnd() { openssl rand -hex 18; }
-          # Credenciales de los roles de ejecución de risk: efímeras y enmascaradas en el log.
-          risk_svc_pw="$(rnd)"; sim_loader_pw="$(rnd)"; ml_job_pw="$(rnd)"
-          echo "::add-mask::${risk_svc_pw}"
-          echo "::add-mask::${sim_loader_pw}"
-          echo "::add-mask::${ml_job_pw}"
+          cp .env.example .env
+          for var in POSTGRES_PASSWORD VERABANK_TRANSFER_PASSWORD VERABANK_RISK_PASSWORD VERABANK_BI_PASSWORD \
+                     RISK_SVC_PASSWORD SIM_LOADER_PASSWORD ML_JOB_PASSWORD METABASE_DB_PASSWORD METABASE_ADMIN_PASSWORD; do
+            value="$(rnd)"
+            echo "::add-mask::${value}"
+            sed -i "s/^${var}=.*/${var}=${value}/" .env
+          done
+          key="$(rnd)"
+          echo "::add-mask::${key}"
           cluster_id="$(python3 -c 'import base64, uuid; print(base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("="))')"
-          sed -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rnd)/" \
-              -e "s/^VERABANK_TRANSFER_PASSWORD=.*/VERABANK_TRANSFER_PASSWORD=$(rnd)/" \
-              -e "s/^VERABANK_RISK_PASSWORD=.*/VERABANK_RISK_PASSWORD=$(rnd)/" \
-              -e "s/^VERABANK_BI_PASSWORD=.*/VERABANK_BI_PASSWORD=$(rnd)/" \
-              -e "s/^RISK_SVC_PASSWORD=.*/RISK_SVC_PASSWORD=${risk_svc_pw}/" \
-              -e "s/^SIM_LOADER_PASSWORD=.*/SIM_LOADER_PASSWORD=${sim_loader_pw}/" \
-              -e "s/^ML_JOB_PASSWORD=.*/ML_JOB_PASSWORD=${ml_job_pw}/" \
-              -e "s/^KAFKA_CLUSTER_ID=.*/KAFKA_CLUSTER_ID=${cluster_id}/" \
-              -e "s/^VERABANK_API_KEYS=.*/VERABANK_API_KEYS=ci:$(rnd)/" \
-              -e "s/^SERVER_PORT=.*/SERVER_PORT=${SERVER_PORT}/" \
-              .env.example > .env
-      - name: make up-core
-        run: make up-core
-      - name: make demo-idempotency
-        run: make demo-idempotency
-      - name: make check-events
-        run: make check-events
+          sed -i -e "s/^KAFKA_CLUSTER_ID=.*/KAFKA_CLUSTER_ID=${cluster_id}/" \
+                 -e "s/^VERABANK_API_KEYS=.*/VERABANK_API_KEYS=ci:${key}/" .env
+      - name: make up (perfiles core, risk y sim con --wait; migraciones y semillas)
+        run: VERABANK_SKIP_BUILD=1 make up
+      - name: make smoke
+        run: make smoke
       - name: make reconcile
         run: make reconcile
-      - name: Log del servicio
+      - name: Logs de los servicios
         if: failure()
-        run: tail -n 200 transfer-service/target/run/transfer-service.log || true
-      - name: make down-core
+        run: docker compose --profile core --profile risk --profile sim logs --no-color --tail 300 > compose-logs.txt || true
+      - name: Subir logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compose-logs
+          path: compose-logs.txt
+          retention-days: 7
+      - name: docker compose down -v
         if: always()
-        run: make down-core
+        run: make reset-data CONFIRM=yes
