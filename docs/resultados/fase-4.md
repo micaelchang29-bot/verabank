@@ -75,6 +75,8 @@ Todos los umbrales de k6 se cumplen en las seis corridas.
 
 **Marcas de tiempo de los fallos (segunda, 30 min).** Los 16 fallos son respuestas `500 internal-error` («La consulta 'bitácora (escritura|lectura)' superó 100 ms») y caen **todos en una sola ráfaga de 0,3 s**, del segundo 739,3 al 739,6 de la prueba (2026-11-17T23:56:46Z, a los ~12 min), con 101 a 117 ms de latencia: 10 de escritura y 6 de lectura. No están al inicio ni son periódicos: es un único bloqueo breve de las consultas a PostgreSQL. No se investigó la causa. (En la primera pasada los fallos no se registraban con marca de tiempo.)
 
+**Filas sintéticas de k6.** `make perf-scoring` escribe filas sintéticas en `risk.scoring_log` (con `model_version = fraud-xgb/6`, sin transferencia en `core.transfers`); a 2026-11-17 hay 158.999 tras las corridas de esta fase. No llevan la marca `warmup`, así que D1 no las excluye por sí solo. Cualquier agregado sobre `risk.scoring_log` (PSI, KPIs, entrenamiento) debe excluirlas, por ejemplo uniendo con `core.transfers` por `transfer_id`, además de `model_version <> 'warmup'`. Las cifras de este documento salen de `core.transfers` y de `data/replay/summary.json`, no de agregados sobre esa tabla.
+
 **Memoria** (`docker stats --no-stream`, una muestra cada 30 s durante la carga; suma de los seis contenedores). Objetivo: Compose ≤ 8 GB.
 
 | Corrida | Muestras | Total mín. / máx. | Máximo por servicio |
