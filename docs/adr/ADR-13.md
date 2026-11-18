@@ -165,3 +165,8 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 - **Muestra sintética en la CI (D11).**
 - **Filas sintéticas de k6 en `scoring_log` (D2).** Se excluyen por el prefijo `perf-` de `source_ref`; un generador
   nuevo que no lo use contaminaría PSI, razones y reentrenamiento.
+- **Transferencias con reloj real en la línea de tiempo simulada.** `make smoke`, `make demo-idempotency` y la carga T-17
+  envían `occurred_at` = ahora (2026), muy después de los pasos de PaySim (enero de 2026). En la misma base desplazan el
+  máximo `occurred_at`: el PSI calcula cientos de ventanas vacías (`insufficient`), todas las etiquetas cuentan como
+  maduras y el disparador de 30 días se cumple siempre. Por eso la demo, el BI y la carga corren sobre bases limpias y
+  separadas (D3, D10).
