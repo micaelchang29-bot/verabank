@@ -253,7 +253,8 @@ def write_thresholds(winner, selection, finals, cols, cfg, client) -> None:
         "provenance": selection["provenance"],
     }  # fmt: skip
     tracking.dump_json(THRESHOLDS_PATH, payload)
-    print(f"alias champion -> {info['name']} v{info['version']}; thresholds.json escrito")
+    client.log_artifact(info["run_id"], str(THRESHOLDS_PATH))   # D8: ml-export lee los umbrales del run del champion
+    print(f"alias champion -> {info['name']} v{info['version']}; thresholds.json escrito y adjunto al run")
 
 
 if __name__ == "__main__":

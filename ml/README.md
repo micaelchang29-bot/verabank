@@ -305,3 +305,31 @@ del sesgo de `pred_contribs`, porque `TreeExplainer.expected_value` ignora `base
 llamada a `shap_values`); con la logística, coeficiente × valor estandarizado. Se guardan las tres de mayor
 contribución absoluta (desempate por nombre) con su signo. `explain(model, X)` es pura y común a los dos modelos.
 Idempotente: no recalcula los casos que ya tienen razones de la misma `model_version`.
+
+## Reentrenamiento, promoción y rollback (fase 5, HU-10, D7 y D8)
+
+```bash
+make retrain-check               # disparadores: drift vigente, caída de recall > 5 puntos, > 30 días simulados
+make retrain [REASON=drift]      # challenger desde scoring_log ⨝ fraud_labels maduras; ml/reports/retrain-report.md
+make promote                     # mueve champion si en sombra baja el costo ≥ 2 % sin empeorar el recall
+make rollback                    # vuelve al previous_champion
+```
+
+- Parámetros en `ml/retrain.yaml` (supuestos), **no** en `config.yaml`: su SHA-256 es parte de la procedencia del
+  champion (`thresholds.json`, `manifest.json`, prueba de T-13) y cambiarlo rompería la exportación idéntica (D8).
+- **Conjunto**: rol `ml_job`; sin `warmup`; solo etiquetas maduras (≥ 48 pasos antes del máximo `occurred_at`);
+  features del JSONB en el orden del contrato; último 25 % de los pasos para validación con 24 de hueco; la familia y
+  los hiperparámetros del champion (XGBoost con parada temprana y reajuste, como `ml-train`); umbrales solo en esa
+  validación. Se niega por debajo de 100 fraudes de entrenamiento o 30 de validación.
+- **Salida**: run en MLflow con su `thresholds.json` adjunto, alias `challenger` (en un solo modelo registrado),
+  `ml/artifacts/challenger/{model.onnx,thresholds.json}`, `golden_challenger.jsonl` recalculado sobre los casos de
+  `golden.jsonl` (paridad ONNX < 1e-5) y el manifiesto actualizado: risk-scoring lo carga en sombra al reconstruirse.
+- **Promoción**: filas con `shadow_score` y etiqueta madura del champion vigente; exige que el challenger reproduzca el
+  `shadow_score` registrado (≥ 99,5 %: si no, la sombra era de otro modelo), ≥ 24 pasos, costo (fórmula de
+  `config.yaml`, cada modelo con sus umbrales) ≥ 2 % menor y recall de REVIEW o BLOCK no peor. Guarda
+  `previous_champion` en una etiqueta de los modelos registrados, deja al anterior como challenger, ejecuta
+  `ml-export` y `ml-psi-ref`, y avisa de reconstruir risk-scoring. `rollback` hace lo inverso.
+- **`ml-export`** lee los umbrales del run del alias `champion` (`ml-train` y `retrain` los adjuntan). El champion
+  `fraud-xgb/6` es anterior a la fase 5 y su run no los tiene: vale `ml/artifacts/thresholds.json` si es de esa versión.
+  Con ese champion, la exportación antes y después del cambio dio `model.onnx`, `thresholds.json`, `golden.jsonl`,
+  `manifest.json`, `challenger/model.onnx` y `golden_challenger.jsonl` idénticos byte a byte.

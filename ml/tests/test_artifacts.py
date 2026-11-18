@@ -215,7 +215,9 @@ def test_manifest_and_thresholds_agree_on_the_champion(manifest, thresholds):
     assert thresholds["model_version"] == f"{champion['registered_model']}/{champion['version']}"
     assert manifest["model_io"]["input_name"] == INPUT_NAME
     assert manifest["model_io"]["positive_class_column"] == 1
-    assert manifest["models"]["challenger"]["registered_model"] != champion["registered_model"]
+    # El challenger es otro modelo registrado (ml-train) u otra versión del mismo (make retrain, D7): nunca el champion.
+    challenger = manifest["models"]["challenger"]
+    assert (challenger["registered_model"], challenger["version"]) != (champion["registered_model"], champion["version"])
 
 
 def test_thresholds_contract_is_complete(thresholds):

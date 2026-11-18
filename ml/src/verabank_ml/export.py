@@ -72,6 +72,32 @@ def load_alias(client, cfg: dict, alias: str):
     raise RuntimeError(f"ningún modelo registrado tiene el alias {alias}: ejecuta make ml-train")
 
 
+THRESHOLDS_ARTIFACT = "thresholds.json"
+
+
+def run_thresholds(client, name: str, version: str) -> dict | None:
+    """thresholds.json adjunto al run de esa versión registrada (ml-train y retrain lo adjuntan, D8), o None."""
+    run_id = client.get_model_version(name, version).run_id
+    if THRESHOLDS_ARTIFACT not in {a.path for a in client.list_artifacts(run_id)}:
+        return None
+    local = client.download_artifacts(run_id, THRESHOLDS_ARTIFACT)
+    return json.loads(open(local, encoding="utf-8").read())
+
+
+def champion_thresholds(client, champion) -> dict:
+    """Los umbrales del run del alias champion. Un champion entrenado antes de la fase 5 no los tiene adjuntos: entonces
+    vale ml/artifacts/thresholds.json, siempre que sea de esa misma versión."""
+    _, name, version, _ = champion
+    found = run_thresholds(client, name, version)
+    if found is not None:
+        return found
+    fallback = json.loads(THRESHOLDS_PATH.read_text())
+    if fallback["model_version"] != f"{name}/{version}":
+        raise RuntimeError(f"el run de {name}/{version} no tiene thresholds.json y ml/artifacts/thresholds.json es de "
+                           f"{fallback['model_version']}")
+    return fallback
+
+
 def io_signature(payload: bytes) -> dict:
     """Entradas y salidas (nombre, tipo, forma) de un ONNX, tal como las ve ONNX Runtime."""
     session = ort.InferenceSession(payload, providers=["CPUExecutionProvider"])
@@ -110,13 +136,13 @@ def export_command(argv: list[str]) -> int:
     del argv
     started = time.perf_counter()
     cfg = load_config()
-    thresholds = json.loads(THRESHOLDS_PATH.read_text())
-    cols = thresholds["feature_order"]
-    if cols != modeling.feature_order(thresholds["feature_set"]):
-        raise RuntimeError("feature_order de thresholds.json no coincide con features.yaml")
     client = tracking.setup(cfg)
     champion = load_alias(client, cfg, "champion")
     challenger = load_alias(client, cfg, "challenger")
+    thresholds = champion_thresholds(client, champion)   # D8: del run del alias champion
+    cols = thresholds["feature_order"]
+    if cols != modeling.feature_order(thresholds["feature_set"]):
+        raise RuntimeError("feature_order de thresholds.json no coincide con features.yaml")
     if f"{champion[1]}/{champion[2]}" != thresholds["model_version"]:
         raise RuntimeError(
             f"el champion {champion[1]}/{champion[2]} no es {thresholds['model_version']}"

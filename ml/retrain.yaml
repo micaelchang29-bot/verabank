@@ -1,0 +1,20 @@
+# Reentrenamiento, promoción y rollback (fase 5, HU-10, §5f; D7 y D8 de docs/adr/ADR-13.md).
+# TODOS los valores son supuestos de negocio. Van aparte de config.yaml porque el SHA-256 de config.yaml es parte de la
+# procedencia del champion (thresholds.json y manifest.json): cambiarlo obligaría a reentrenar el champion offline y
+# rompería la exportación idéntica byte a byte (D8).
+
+retrain:
+  min_mature_steps: 48        # una etiqueta es madura si occurred_at <= max(occurred_at) - 48 pasos (48 h simuladas)
+  valid_fraction: 0.25        # validación interna: el último 25 % de los pasos con filas maduras
+  gap_steps: 24               # hueco entre entrenamiento y validación (igual que el split offline)
+  min_frauds_train: 100       # por debajo, retrain se niega
+  min_frauds_valid: 30
+
+triggers:
+  recall_drop_points: 5       # caída del recall del champion en cohortes maduras frente al de validación, en puntos
+  max_days_since_cutoff: 30   # días simulados desde el corte de entrenamiento (split.train de config.yaml)
+
+promotion:
+  min_shadow_steps: 24        # pasos distintos con shadow_score y etiqueta madura
+  min_cost_improvement: 0.02  # el costo del challenger debe bajar al menos un 2 %
+  shadow_match_min: 0.995     # fracción de shadow_score que debe reproducir el challenger (es el que corrió en sombra)
