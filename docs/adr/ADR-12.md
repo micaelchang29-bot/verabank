@@ -10,7 +10,7 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 
 - Contexto: las features de ventana (`src_out_count_24h`, `dst_in_count_24h`, …) leen `risk.scoring_log`. Un replay que parte de una tabla vacía deja las primeras 24 horas de negocio sin historia, y las features de arranque en frío no se parecen a las del entrenamiento.
 - Decisión: antes de empezar, el replay carga en `risk.scoring_log` los 24 pasos previos a su primera fila, con el rol `sim_loader` y `COPY`, con `model_version = 'warmup'`. Las filas `warmup` cuentan como historia al calcular features. Se excluyen de PSI, de los KPIs y de cualquier entrenamiento.
-- Consecuencias: las ventanas de 1 h y 24 h quedan correctas. `dst_seen_before`, `dst_age_hours` e `is_new_beneficiary` ven menos historia que en el entrenamiento (que las calculó sobre toda la partición anterior): es un desajuste aceptado y documentado, no un defecto por corregir. Quien lea `risk.scoring_log` debe filtrar `model_version <> 'warmup'`.
+- Consecuencias: las ventanas de 1 h y 24 h quedan correctas. `dst_seen_before`, `dst_age_hours` e `is_new_beneficiary` ven menos historia que en el entrenamiento (que las calculó sobre toda la partición anterior): es un desajuste aceptado y documentado, no un defecto por corregir. Quien lea `risk.scoring_log` debe filtrar `model_version <> 'warmup'`. El tamaño del desajuste está medido (ver «Límites conocidos»).
 
 ### D2 · Artefactos en el servicio
 
@@ -85,7 +85,7 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 
 ## Límites conocidos
 
-- **Desajuste de historia (D1).** `dst_seen_before`, `dst_age_hours` e `is_new_beneficiary` ven menos historia en el replay que en el entrenamiento: las métricas de modelo del replay no son las de `test`.
+- **Desajuste de historia (D1), medido.** `dst_seen_before`, `dst_age_hours` e `is_new_beneficiary` ven menos historia en el replay que en el entrenamiento. Sobre las mismas 20.000 filas (pasos 575 a 590), `dst_seen_before` vale 0,44 en promedio con historia completa y 0,018 en el servicio, y `dst_age_hours` 163 h frente a 0,29 h: casi todos los destinos parecen nuevos. Con las mismas filas puntuadas fuera de línea con historia completa, el FPR de bloqueo es 0,050 %; en el servicio, 0,267 % (53 bloqueadas legítimas, todas `TRANSFER`), y la tasa de revisión pasa de 0,98 % a 1,40 %. Las métricas de decisión del replay no son comparables con las de `test`; el detalle está en `docs/resultados/fase-4.md`. D1 se mantiene: reducir el desajuste exigiría cargar más historia y cambiar el replay.
 - **Publicación sin outbox (D6).** `AmlAlertRaised` se publica después de confirmar la transacción. Si el proceso muere entre la confirmación y el envío, la alerta existe en la base y el mensaje no sale; reprocesar el evento de origen no lo republica (el inbox ya lo registró). El resto del sistema usa outbox (ADR-02); aquí se aceptó porque `aml.alerts.v1` aún no tiene consumidores.
 - **`FAN_IN` y `FAST_PASS` sin cobertura (D12).** `FAN_IN` queda fuera del alcance de este corte y `FAST_PASS` no tiene regla en la tabla de §5a.
 - **El resumen del replay lee `core.transfers`.** `decision_source` y `scoring_latency_ms` no los devuelve la API de lectura y el rol de BI no ve `core`; el replay los lee con el rol de `transfer-service` (solo `SELECT`). Es una lectura directa a la base de otro servicio, aceptada solo en la herramienta de simulación.

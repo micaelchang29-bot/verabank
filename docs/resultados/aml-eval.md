@@ -4,8 +4,8 @@ Contra la verdad de terreno de `amlgen` (D12). Solo cuentan las alertas que toca
 
 - Semilla del generador: 42
 - Transferencias de `data/aml/`: 30683
-- Alertas en `risk.aml_alerts`: 13997; tocan estas transferencias: 86; excluidas por no tocarlas: 13911
-- Alertas por cada 1.000 transferencias: 2,80
+- Alertas en `risk.aml_alerts`: 14196; tocan estas transferencias: 137; excluidas por no tocarlas: 14059
+- Alertas por cada 1.000 transferencias: 4,47
 - Transferencias del archivo sin id de servicio (no creadas): 0
 
 ## Reglas
@@ -13,7 +13,7 @@ Contra la verdad de terreno de `amlgen` (D12). Solo cuentan las alertas que toca
 | Regla | Alertas | Tocan una instancia de su tipología | Precisión |
 |---|---:|---:|---:|
 | `STRUCTURING` | 35 | 35 | 100,00 % |
-| `COUNTRY_RISK` | 0 | 0 | 0,00 % |
+| `COUNTRY_RISK` | 51 | 51 | 100,00 % |
 
 ### `THRESHOLD` y otras reglas (solo conteo)
 
@@ -26,7 +26,7 @@ Contra la verdad de terreno de `amlgen` (D12). Solo cuentan las alertas que toca
 | Tipología | Instancias | Detectadas | Recall | Techo de cobertura | Estado |
 |---|---:|---:|---:|---:|---|
 | `STRUCTURING` | 40 | 25 | 62,50 % | 62,50 % | consistente |
-| `COUNTRY_RISK` | 60 | 0 | 0,00 % | 65,00 % | consistente |
+| `COUNTRY_RISK` | 60 | 34 | 56,67 % | 65,00 % | consistente |
 | `FAN_IN` | 20 | 0 | 0,00 % (por diseño) | — | no cubierta |
 | `FAST_PASS` | 30 | 0 | 0,00 % (por diseño) | — | no cubierta |
 
