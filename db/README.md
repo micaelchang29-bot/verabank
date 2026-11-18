@@ -116,9 +116,8 @@ publicadas el **2026-10-30**:
 - `WATCH`, «Jurisdictions under Increased Monitoring» (18 países):
   <https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-october-2026.html>
 
-**Procedencia.** Las páginas del GAFI devuelven 403 a clientes automáticos, así que la lista no se descargó: se
-transcribió de la que facilitó la persona responsable del proyecto, que la obtuvo de una fuente secundaria. Está
-**pendiente de contraste con las dos páginas del GAFI**. Mapeo a alfa-2: Iran `IR`, DPRK `KP`, Myanmar `MM`;
+**Procedencia.** Las páginas del GAFI devuelven 403 a clientes automáticos, así que la lista no se descargó por script: se
+transcribió y después se verificó 21 de 21 contra el texto oficial de las dos páginas del GAFI (3 `HIGH` y 18 `WATCH`). Mapeo a alfa-2: Iran `IR`, DPRK `KP`, Myanmar `MM`;
 Angola `AO`, Bolivia `BO`, Bosnia and Herzegovina `BA`, Cameroon `CM`, Haiti `HT`, Iraq `IQ`, Kenya `KE`, Kuwait `KW`,
 Lao PDR `LA`, Lebanon `LB`, Nepal `NP`, Papua New Guinea `PG`, South Sudan `SS`, Syria `SY`, Venezuela `VE`,
 Vietnam `VN`, Virgin Islands (UK) `VG` (no `VI`, que son las de EE. UU.), Yemen `YE`.
