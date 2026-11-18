@@ -66,13 +66,15 @@ def top_reasons(contributions: np.ndarray, names: list[str], n: int = N_REASONS)
 
 PENDING = """
 SELECT s.transfer_id, s.features, s.decision FROM risk.scoring_log s
-WHERE s.model_version <> 'warmup' AND s.decision IN ('REVIEW', 'BLOCK') AND s.model_version = %(mv)s
+WHERE s.model_version <> 'warmup' AND s.source_ref NOT LIKE 'perf-%%' AND s.decision IN ('REVIEW', 'BLOCK')
+  AND s.model_version = %(mv)s
   AND NOT EXISTS (SELECT 1 FROM analytics.fraud_reasons r WHERE r.transfer_id = s.transfer_id AND r.model_version = %(mv)s)
 ORDER BY s.occurred_at, s.transfer_id
 LIMIT %(limit)s
 """
 OTHER_MODEL = """
-SELECT count(*) FROM risk.scoring_log WHERE model_version NOT IN ('warmup', %(mv)s) AND decision IN ('REVIEW', 'BLOCK')
+SELECT count(*) FROM risk.scoring_log WHERE model_version NOT IN ('warmup', %(mv)s) AND source_ref NOT LIKE 'perf-%%'
+  AND decision IN ('REVIEW', 'BLOCK')
 """
 UPSERT = """
 INSERT INTO analytics.fraud_reasons (transfer_id, rank, feature, contribution, model_version, computed_at)

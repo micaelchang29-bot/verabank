@@ -340,9 +340,9 @@ LABELED = """
 SELECT s.transfer_id, s.occurred_at, s.features, s.amount::float8 AS amount, s.score::float8 AS score,
        s.shadow_score::float8 AS shadow_score, s.decision, s.model_version, l.is_fraud
 FROM risk.scoring_log s JOIN risk.fraud_labels l ON l.transfer_id = s.transfer_id
-WHERE s.model_version <> 'warmup'
+WHERE s.model_version <> 'warmup' AND s.source_ref NOT LIKE 'perf-%'
 """
-MAX_REAL = "SELECT max(occurred_at) FROM risk.scoring_log WHERE model_version <> 'warmup'"
+MAX_REAL = "SELECT max(occurred_at) FROM risk.scoring_log WHERE model_version <> 'warmup' AND source_ref NOT LIKE 'perf-%'"
 LATEST_ALERTS = """
 SELECT feature FROM analytics.drift_metrics
 WHERE window_start = (SELECT max(window_start) FROM analytics.drift_metrics) AND alert ORDER BY feature

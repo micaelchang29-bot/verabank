@@ -1,7 +1,7 @@
 """``psi`` (make psi): PSI por ventana de 24 pasos y por feature, más el del score, en ``analytics.drift_metrics`` (D2).
 
 - Ventana ``k`` = pasos ``[24k+1, 24k+24]`` desde ``sim_epoch``: ``[epoch + 24k h, epoch + 24(k+1) h)``. La 24 es 577–600.
-- Solo filas de ``risk.scoring_log`` con ``model_version <> 'warmup'``. Una ventana está completa si hay filas con
+- Solo filas reales de ``risk.scoring_log``: ``model_version <> 'warmup'`` y sin las sintéticas de k6 (``perf-``). Una ventana está completa si hay filas con
   ``occurred_at >= window_end``; las incompletas no se calculan.
 - Menos de 200 filas: ``insufficient``, sin alerta. Feature degenerada: PSI 0.
 - ``alert`` solo para ``score`` y las ``top_features`` de la referencia, con PSI > 0,25 en la ventana **y** en la
@@ -120,7 +120,9 @@ def dsn_from_env() -> str:
                          connect_timeout=10)
 
 
-REAL = "model_version <> 'warmup'"
+# Filas reales: sin el calentamiento del replay (warmup) ni las sintéticas de make perf-scoring, que van directo a
+# risk-scoring con source_ref «perf-…» y sin transferencia (docs/resultados/fase-4.md). Lo comparten los tres jobs.
+REAL = "model_version <> 'warmup' AND source_ref NOT LIKE 'perf-%%'"
 UPSERT = """
 INSERT INTO analytics.drift_metrics (window_start, window_end, feature, psi, n_current, n_bins, degenerate,
                                      insufficient, is_top_feature, alert, model_version, computed_at)

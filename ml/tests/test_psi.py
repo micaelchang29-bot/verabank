@@ -215,6 +215,24 @@ def test_job_matches_an_independent_implementation_and_skips_warmup_and_incomple
     assert alerts(done) == {(25, "a"), (25, "score")}
 
 
+def test_k6_synthetic_rows_are_excluded(pg, ref):
+    """make perf-scoring escribe filas con source_ref «perf-…» y sin transferencia (docs/resultados/fase-4.md)."""
+    pg.reset()
+    insert_rows(pg, rows_for(ref, 24, 0) + rows_for(ref, 25, 0, n=5))
+    with pg.connect("admin") as conn:
+        conn.execute("INSERT INTO risk.scoring_log (transfer_id, source_ref, dest_ref, amount, occurred_at, features, "
+                     "score, decision, model_version) SELECT gen_random_uuid(), 'perf-src-0001', 'perf-dst-0001', 1, %s, "
+                     "%s, 0.9, 'BLOCK', 'm/1' FROM generate_series(1, 500)",
+                     (at_step(2000), json.dumps({"a": 9.0, "b": 9.0, "kind": 1.0})))
+        conn.execute("INSERT INTO risk.scoring_log (transfer_id, source_ref, dest_ref, amount, occurred_at, features, "
+                     "score, decision, model_version) SELECT gen_random_uuid(), 'perf-src-0002', 'd', 1, %s, %s, 0.9, "
+                     "'BLOCK', 'm/1' FROM generate_series(1, 300)", (at_step(590), json.dumps({"a": 9.0, "b": 9.0, "kind": 1.0})))
+    with pg.connect() as conn:
+        done = psi.run(conn, ref, EPOCH)
+    assert sorted(done) == [24]                         # sin las de k6 el máximo está en la 25: solo la 24 completa
+    assert next(m for m in done[24] if m.feature == "score").n_current == 400
+
+
 def test_job_is_idempotent_and_recompute_rewrites_the_same_rows(pg, ref):
     pg.reset()
     insert_rows(pg, rows_for(ref, 24, 0) + rows_for(ref, 25, 1) + rows_for(ref, 26, 0, n=10))
