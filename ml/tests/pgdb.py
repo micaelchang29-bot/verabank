@@ -1,7 +1,7 @@
 """PostgreSQL desechable para las pruebas de los jobs de la fase 5 (PSI, razones, reentrenamiento). Necesita Docker.
 
 Aplica las migraciones reales que los jobs leen o escriben (risk V1–V3: esquema, scoring_log, fraud_labels; analytics
-V1, V3 y V4) y crea el rol ``ml_job`` con los permisos de ``db/init/grants.sql``. Un esquema ``core`` con una tabla
+V1, V3, V4 y V6) y crea el rol ``ml_job`` con los permisos de ``db/init/grants.sql``. Un esquema ``core`` con una tabla
 permite comprobar que ``ml_job`` no lo lee. Si Docker no está, la prueba falla (no se omite).
 """
 
@@ -21,7 +21,7 @@ ADMIN_PW = "admin-ml-test"
 ML_JOB_PW = "ml-job-test"
 MIGRATIONS = ["risk/V1__create_schema_risk.sql", "risk/V2__scoring_log.sql", "risk/V3__fraud_labels.sql",
               "analytics/V1__create_schema_analytics.sql", "analytics/V3__drift_metrics.sql",
-              "analytics/V4__fraud_reasons.sql"]
+              "analytics/V4__fraud_reasons.sql", "analytics/V6__drift_metrics_reference.sql"]
 
 
 def ml_job_grants() -> str:

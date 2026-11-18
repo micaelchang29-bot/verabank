@@ -257,6 +257,81 @@ def test_a_new_window_reads_the_previous_one_from_the_table(pg, ref):
     assert sorted(done) == [25] and alerts(done) == {(25, "a"), (25, "score")}
 
 
+@pytest.fixture
+def shifted_ref():
+    """Una referencia calibrada sobre datos desplazados 3 (el estado de a, b y score de ``window(..., 3)``)."""
+    rng = np.random.default_rng(8)
+    train = {"a": rng.normal(3, 1, 5000), "b": rng.normal(3, 1, 5000), "kind": rng.integers(0, 3, 5000).astype(float)}
+    return {"top_features": ["a", "kind"], "features": {k: quantile_spec(v) for k, v in train.items()},
+            "score": quantile_spec(np.clip(rng.beta(1, 20, 5000) + 0.75, 0, 1))}
+
+
+def reference_rows(pg):
+    with pg.connect("admin") as conn:
+        return conn.execute("SELECT reference, count(*), count(*) FILTER (WHERE alert) FROM analytics.drift_metrics "
+                            "GROUP BY 1 ORDER BY 1").fetchall()
+
+
+def test_rows_of_both_references_live_together(pg, ref, shifted_ref):
+    pg.reset()
+    insert_rows(pg, rows_for(ref, 24, 3, seed=5) + rows_for(ref, 25, 3, seed=6) + rows_for(ref, 26, 0, n=5))
+    train = {**ref, "partition": "train"}
+    valid = {**shifted_ref, "partition": "valid"}
+    with pg.connect() as conn:
+        done_train = psi.run(conn, train, EPOCH)
+        done_valid = psi.run(conn, valid, EPOCH)
+        assert psi.run(conn, train, EPOCH) == {} and psi.run(conn, valid, EPOCH) == {}   # cada una tiene sus ventanas
+    n = len(ref["features"]) + 1
+    assert reference_rows(pg) == [("train", 2 * n, 2), ("valid", 2 * n, 0)]
+    assert {m.reference for ms in done_train.values() for m in ms} == {"train"}
+    assert {m.reference for ms in done_valid.values() for m in ms} == {"valid"}
+    assert alerts(done_train) == {(25, "a"), (25, "score")} and alerts(done_valid) == set()
+    with pg.connect() as conn:
+        # La misma ventana y feature con dos referencias son filas distintas con PSI distinto.
+        rows = conn.execute("SELECT reference, psi FROM analytics.drift_metrics WHERE feature = 'a' AND window_start = %s "
+                            "ORDER BY 1", (psi.window_bounds(EPOCH, 24)[0],)).fetchall()
+    assert rows[0][0] == "train" and rows[1][0] == "valid" and float(rows[0][1]) > 0.25 > float(rows[1][1])
+
+
+@pytest.mark.parametrize("hi_name, lo_name", [("train", "valid"), ("valid", "train")])
+def test_the_alert_reads_the_previous_window_of_the_same_reference_only(pg, ref, shifted_ref, hi_name, lo_name):
+    """Con ``hi`` la ventana 24 ya estaba alta; con ``lo`` (calibrada sobre esos datos) no: ``lo`` no puede alertar en la 25."""
+    pg.reset()
+    hi, lo = {**ref, "partition": hi_name}, {**shifted_ref, "partition": lo_name}
+    insert_rows(pg, rows_for(ref, 24, 3, seed=5) + rows_for(ref, 25, 0, n=5))
+    with pg.connect() as conn:
+        psi.run(conn, lo, EPOCH)                      # lo primero, hi después: las filas de hi son las últimas de la tabla
+        psi.run(conn, hi, EPOCH)
+    insert_rows(pg, rows_for(ref, 25, 6, seed=7) + rows_for(ref, 26, 0, n=5))
+    with pg.connect() as conn:
+        done_lo = psi.run(conn, lo, EPOCH)
+        done_hi = psi.run(conn, hi, EPOCH)
+    assert {m.feature: m.psi for m in done_lo[25]}["a"] > 0.25            # alta en la 25, pero la anterior de lo era baja
+    assert alerts(done_lo) == set()
+    assert alerts(done_hi) == {(25, "a"), (25, "score")}
+    assert reference_rows(pg)[0][0] == "train" and {r[0]: r[2] for r in reference_rows(pg)}[lo_name] == 0
+
+
+def test_psi_command_writes_the_chosen_reference(pg, ref, shifted_ref, tmp_path, monkeypatch, capsys):
+    pg.reset()
+    paths = {"train": tmp_path / "t.json", "valid": tmp_path / "v.json"}
+    paths["train"].write_text(json.dumps({**ref, "partition": "train"}))
+    paths["valid"].write_text(json.dumps({**shifted_ref, "partition": "valid"}))
+    insert_rows(pg, rows_for(ref, 24, 3) + rows_for(ref, 25, 0, n=5))
+    monkeypatch.setattr(psi, "REFERENCE_PATHS", paths)
+    monkeypatch.setenv("VERABANK_ML_DSN", pg.dsn())
+    assert psi.psi_command([]) == 0                                    # por defecto: train
+    assert [r[0] for r in reference_rows(pg)] == ["train"]
+    assert psi.psi_command(["--reference", "valid"]) == 0
+    assert [r[0] for r in reference_rows(pg)] == ["train", "valid"]
+    assert "referencia: valid (v.json)" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        psi.psi_command(["--reference", "test"])
+    paths["valid"].unlink()
+    with pytest.raises(SystemExit, match="falta v.json"):
+        psi.psi_command(["--reference", "valid"])
+
+
 def test_ml_job_cannot_read_core(pg):
     import psycopg
 
@@ -300,7 +375,84 @@ def test_top_features_break_ties_by_name():
     assert reference.top_features({"b": 1.0, "a": 1.0, "c": 3.0, "d": 0.5, "e": 0.1, "f": 0.0}) == ["c", "a", "b", "d", "e"]
 
 
-def test_psi_reference_command_reads_only_train(monkeypatch):
+def synthetic_valid(n=2000, seed=11):
+    """Otro régimen: x desplazada y más dispersa, y con otra mezcla."""
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame({"step": rng.integers(425, 551, n), "partition": "valid", "x": rng.normal(1.5, 2.0, n),
+                         "y": rng.integers(0, 3, n).astype(float), "z": np.zeros(n)})
+
+
+def independent_bins(values):
+    """Bins y proporciones con Python puro (cuantil lineal a mano, bisect), sin el código de binning."""
+    from bisect import bisect_left
+
+    x = sorted(round(float(v), 9) for v in values)
+    n = len(x)
+    if len(set(x)) <= 10:
+        keys = sorted(set(x))
+        idx = [keys.index(v) for v in x]
+        k = len(keys) + 1
+    else:
+        edges = []
+        for i in range(1, 10):
+            pos = (n - 1) * i / 10
+            lo = int(pos)
+            hi = min(lo + 1, n - 1)
+            edges.append(round(x[lo] + (x[hi] - x[lo]) * (pos - lo), 9))
+        keys = sorted(set(edges))
+        idx = [bisect_left(keys, v) for v in x]
+        k = len(keys) + 1
+    return keys, [max(idx.count(i) / n, 1e-4) for i in range(k)]
+
+
+THRESHOLDS = {"feature_order": ["x", "y", "z"], "model_version": "m/1", "model_sha256": "abc", "feature_set": "A"}
+
+
+def test_validation_reference_bins_match_an_independent_implementation():
+    train = reference.build_reference(synthetic_train(), Model(), "logreg", THRESHOLDS, seed=42)
+    valid_df = synthetic_valid()
+    valid = reference.build_reference(valid_df, Model(), "logreg", THRESHOLDS, seed=42, partition="valid", inherited=train)
+    assert valid["partition"] == "valid" and valid["valid_steps"] == [int(valid_df["step"].min()), int(valid_df["step"].max())]
+    assert valid["n_valid"] == len(valid_df) and "train_steps" not in valid
+    for name in ("x", "y", "z"):
+        keys, expected = independent_bins(valid_df[name])
+        spec = valid["features"][name]
+        assert list(spec.get("edges", spec.get("values"))) == pytest.approx(keys, abs=2e-9), name   # el 9.º decimal puede empatar
+        assert spec["expected"] == pytest.approx(expected, abs=1e-12), name
+        if name != "z":                                    # z es constante en ambas
+            assert spec.get("edges", spec.get("values")) != train["features"][name].get("edges", train["features"][name].get("values")), name
+    score = np.round(Model().predict_proba(valid_df[["x", "y", "z"]].to_numpy())[:, 1], 5)
+    keys, expected = independent_bins(score)
+    assert list(valid["score"]["edges"]) == pytest.approx(keys, abs=2e-9) and valid["score"]["expected"] == pytest.approx(expected, abs=1e-12)
+    assert valid["top_features"] == train["top_features"] and valid["importance"] == train["importance"]
+
+
+def test_validation_reference_is_deterministic_and_aggregate_only():
+    train = reference.build_reference(synthetic_train(), Model(), "logreg", THRESHOLDS, seed=42)
+    a = reference.build_reference(synthetic_valid(), Model(), "logreg", THRESHOLDS, seed=42, partition="valid", inherited=train)
+    b = reference.build_reference(synthetic_valid(), Model(), "logreg", THRESHOLDS, seed=42, partition="valid", inherited=train)
+    assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+    assert "rows" not in json.dumps(a) and "occurred_at" not in json.dumps(a)
+
+
+def test_each_partition_writes_its_own_file_and_manifest_entry(tmp_path, monkeypatch):
+    artifacts = tmp_path
+    (artifacts / "manifest.json").write_text(json.dumps({"artifacts": {}}))
+    monkeypatch.setattr(reference, "REFERENCE_PATHS", {"train": artifacts / "psi_reference.json",
+                                                      "valid": artifacts / "psi_reference_valid.json"})
+    monkeypatch.setattr(reference, "MANIFEST_PATH", artifacts / "manifest.json")
+    train = reference.build_reference(synthetic_train(), Model(), "logreg", THRESHOLDS, seed=42)
+    valid = reference.build_reference(synthetic_valid(), Model(), "logreg", THRESHOLDS, seed=42, partition="valid", inherited=train)
+    digests = [reference.write_reference(train), reference.write_reference(valid)]
+    manifest = json.loads((artifacts / "manifest.json").read_text())["artifacts"]
+    assert {k: v["sha256"] for k, v in manifest.items()} == dict(zip(["psi_reference.json", "psi_reference_valid.json"], digests, strict=True))
+    assert reference.write_reference(valid) == digests[1]                      # segunda vez: idéntico
+    assert json.loads((artifacts / "psi_reference_valid.json").read_text())["partition"] == "valid"
+
+
+@pytest.mark.parametrize("partition, argv", [("train", []), ("train", ["--partition", "train"]),
+                                             ("valid", ["--partition", "valid"])])
+def test_psi_reference_command_reads_only_its_partition(monkeypatch, partition, argv):
     seen = {}
 
     def fake_load(feature_set, partitions, columns=None, allow_test=False):
@@ -308,15 +460,19 @@ def test_psi_reference_command_reads_only_train(monkeypatch):
         raise RuntimeError("detener aquí")
 
     monkeypatch.setattr(reference.modeling, "load_features", fake_load)
-    monkeypatch.setattr("verabank_ml.export.load_alias", lambda client, cfg, alias: ("xgb", "fraud-xgb", "6", None))
     monkeypatch.setattr(reference.tracking, "setup", lambda cfg: None)
     monkeypatch.setattr(reference, "THRESHOLDS_PATH", ARTIFACTS / "thresholds.json")
     thresholds = json.loads((ARTIFACTS / "thresholds.json").read_text())
     monkeypatch.setattr("verabank_ml.export.load_alias",
                         lambda client, cfg, alias: ("xgb", *thresholds["model_version"].split("/"), None))
     with pytest.raises(RuntimeError, match="detener aquí"):
-        reference.psi_reference_command([])
-    assert seen["partitions"] == ("train",)
+        reference.psi_reference_command(argv)
+    assert seen["partitions"] == (partition,)
+
+
+def test_psi_reference_command_rejects_an_unknown_partition():
+    with pytest.raises(SystemExit):
+        reference.psi_reference_command(["--partition", "test"])
 
 
 def test_artifact_reference_belongs_to_the_current_champion_and_is_in_the_manifest():
@@ -331,6 +487,25 @@ def test_artifact_reference_belongs_to_the_current_champion_and_is_in_the_manife
     assert list(ref["features"]) == thresholds["feature_order"] and len(ref["top_features"]) == 5
     assert ref["partition"] == "train" and ref["train_steps"][1] <= 400
     for spec in [*ref["features"].values(), ref["score"]]:
+        assert len(spec["expected"]) == spec["n_bins"] and min(spec["expected"]) >= 1e-4
+
+
+def test_validation_reference_is_in_the_manifest_next_to_the_training_one():
+    train = json.loads((ARTIFACTS / "psi_reference.json").read_text())
+    valid = json.loads((ARTIFACTS / "psi_reference_valid.json").read_text())
+    thresholds = json.loads((ARTIFACTS / "thresholds.json").read_text())
+    manifest = json.loads((ARTIFACTS / "manifest.json").read_text())["artifacts"]
+    for name in ("psi_reference.json", "psi_reference_valid.json"):
+        entry = manifest[name]
+        assert entry["sha256"] == hashlib.sha256((ARTIFACTS / name).read_bytes()).hexdigest(), name
+        assert entry["model_sha256"] == thresholds["model_sha256"], name
+    assert manifest["psi_reference.json"]["sha256"] != manifest["psi_reference_valid.json"]["sha256"]
+    assert valid["partition"] == "valid" and 425 <= valid["valid_steps"][0] and valid["valid_steps"][1] <= 550
+    assert "train_steps" not in valid and "n_train" not in valid
+    assert valid["model_sha256"] == train["model_sha256"] and valid["top_features"] == train["top_features"]
+    assert list(valid["features"]) == list(train["features"])
+    assert valid["score"]["expected"] != train["score"]["expected"]       # otra partición, otros bins
+    for spec in [*valid["features"].values(), valid["score"]]:
         assert len(spec["expected"]) == spec["n_bins"] and min(spec["expected"]) >= 1e-4
 
 

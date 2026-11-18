@@ -1,8 +1,10 @@
-"""``psi-reference`` (make ml-psi-ref): referencia del PSI desde la partición de entrenamiento (D1).
+"""``psi-reference`` (make ml-psi-ref): referencias del PSI desde la partición de entrenamiento y la de validación (D1).
 
-Lee **solo** ``partition = 'train'`` de ``data/features/features_A.parquet`` y escribe ``ml/artifacts/psi_reference.json``
-con agregados (bins, proporciones esperadas, ``top_features``), nunca filas ni marcas de tiempo: dos ejecuciones con
-los mismos datos y el mismo champion dan el mismo archivo byte a byte. Registra su hash en ``manifest.json``.
+``--partition train`` (por defecto, §5f) lee **solo** ``partition = 'train'`` de ``data/features/features_A.parquet`` y
+escribe ``ml/artifacts/psi_reference.json``. ``--partition valid`` lee solo ``valid`` (pasos 425–550, ya en el régimen
+posterior al cambio cercano al paso 400) y escribe ``psi_reference_valid.json``, con los mismos ``top_features`` que la de
+entrenamiento. Ambas guardan agregados (bins, proporciones esperadas), nunca filas ni marcas de tiempo: dos ejecuciones
+con los mismos datos y el mismo champion dan el mismo archivo byte a byte. Registran su hash en ``manifest.json``.
 
 - Score de referencia: el del champion (alias ``champion`` de MLflow) sobre entrenamiento, redondeado a 5 decimales
   como el que guarda ``risk.scoring_log``.
@@ -13,6 +15,7 @@ los mismos datos y el mismo champion dan el mismo archivo byte a byte. Registra 
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 
@@ -23,10 +26,11 @@ from verabank_ml.features import REPO_ROOT, load_config
 from verabank_ml.monitor import binning
 
 ARTIFACTS = REPO_ROOT / "ml" / "artifacts"
-REFERENCE_PATH = ARTIFACTS / "psi_reference.json"
+REFERENCE_PATHS = {"train": ARTIFACTS / "psi_reference.json", "valid": ARTIFACTS / "psi_reference_valid.json"}
+REFERENCE_PATH = REFERENCE_PATHS["train"]
 MANIFEST_PATH = ARTIFACTS / "manifest.json"
 THRESHOLDS_PATH = ARTIFACTS / "thresholds.json"
-MANIFEST_KEY = "psi_reference.json"
+MANIFEST_KEYS = {name: path.name for name, path in REFERENCE_PATHS.items()}
 TOP_N = 5
 SHAP_SAMPLE = 200_000
 IMPORTANCE_DECIMALS = 9
@@ -52,11 +56,20 @@ def logreg_importance(pipeline, names: list[str]) -> dict[str, float]:
     return {k: round(float(abs(v)), IMPORTANCE_DECIMALS) for k, v in zip(names, coef, strict=True)}
 
 
-def build_reference(train, model, family: str, thresholds: dict, seed: int) -> dict:
+def build_reference(train, model, family: str, thresholds: dict, seed: int, partition: str = "train",
+                    inherited: dict | None = None) -> dict:
+    """Referencia de ``train`` (la fuente de ``top_features``) o de ``valid``, que hereda ``inherited`` (la de train)."""
     cols = thresholds["feature_order"]
     X = modeling.matrix(train, cols)
     score = np.round(modeling.positive_proba(model, X), 5)
-    importance = (xgb_importance(model, X, cols, seed) if family == "xgb" else logreg_importance(model, cols))
+    if partition == "train":
+        importance = xgb_importance(model, X, cols, seed) if family == "xgb" else logreg_importance(model, cols)
+        top_method = "mean |SHAP| (xgb, muestra de entrenamiento)" if family == "xgb" else "|coef * std|"
+        shap_sample = min(SHAP_SAMPLE, len(train)) if family == "xgb" else None
+    else:
+        importance = inherited["importance"]
+        top_method = "heredadas de la referencia de entrenamiento (psi_reference.json)"
+        shap_sample = None
     features = {}
     for name in cols:
         bins = binning.fit_bins(train[name].to_numpy())
@@ -69,14 +82,13 @@ def build_reference(train, model, family: str, thresholds: dict, seed: int) -> d
         "model_sha256": thresholds["model_sha256"],
         "model_family": family,
         "feature_set": thresholds["feature_set"],
-        "partition": "train",
-        "train_steps": [int(steps.min()), int(steps.max())],
-        "n_train": len(train),
+        "partition": partition,
+        f"{partition}_steps": [int(steps.min()), int(steps.max())],
+        f"n_{partition}": len(train),
         "method": {"bins": "deciles con bordes únicos; <= 10 valores: uno por valor + otro", "floor": binning.FLOOR,
                    "decimals": binning.DECIMALS, "psi": "sum((a - e) * ln(a / e))",
-                   "top_features": "mean |SHAP| (xgb, muestra de entrenamiento)" if family == "xgb" else "|coef * std|",
-                   "shap_sample": min(SHAP_SAMPLE, len(train)) if family == "xgb" else None},
-        "top_features": top_features(importance),
+                   "top_features": top_method, "shap_sample": shap_sample},
+        "top_features": top_features(importance) if partition == "train" else list(inherited["top_features"]),
         "importance": importance,
         "features": features,
         "score": {**score_bins.to_json(), "expected": [float(p) for p in binning.proportions(score_bins, score)]},
@@ -84,17 +96,22 @@ def build_reference(train, model, family: str, thresholds: dict, seed: int) -> d
 
 
 def write_reference(reference: dict) -> str:
+    partition = reference["partition"]
     payload = (json.dumps(reference, indent=2, ensure_ascii=False) + "\n").encode()
-    REFERENCE_PATH.write_bytes(payload)
+    REFERENCE_PATHS[partition].write_bytes(payload)
     digest = hashlib.sha256(payload).hexdigest()
     manifest = json.loads(MANIFEST_PATH.read_text())
-    manifest["artifacts"][MANIFEST_KEY] = {"sha256": digest, "model_sha256": reference["model_sha256"]}
+    manifest["artifacts"][MANIFEST_KEYS[partition]] = {"sha256": digest, "model_sha256": reference["model_sha256"]}
     tracking.dump_json(MANIFEST_PATH, manifest)
     return digest
 
 
 def psi_reference_command(argv: list[str]) -> int:
-    del argv
+    parser = argparse.ArgumentParser(prog="python -m verabank_ml psi-reference", description=__doc__.split("\n")[0])
+    parser.add_argument("--partition", choices=sorted(REFERENCE_PATHS), default="train",
+                        help="partición que da los bins y el score de referencia (por defecto train, §5f)")
+    args = parser.parse_args(argv)
+    partition = args.partition
     from verabank_ml.export import load_alias
 
     cfg = load_config()
@@ -103,12 +120,22 @@ def psi_reference_command(argv: list[str]) -> int:
     family, name, version, model = load_alias(client, cfg, "champion")
     if f"{name}/{version}" != thresholds["model_version"]:
         raise RuntimeError(f"el champion {name}/{version} no es {thresholds['model_version']}: ejecuta make ml-export")
-    train = modeling.load_features(thresholds["feature_set"], ("train",),
-                                   columns=["step", "partition", *thresholds["feature_order"]])
-    if set(train["partition"].unique()) != {"train"}:
-        raise RuntimeError("la referencia solo usa la partición train")
-    reference = build_reference(train, model, family, thresholds, cfg["seed"])
+    inherited = None
+    if partition == "valid":
+        if not REFERENCE_PATH.exists():
+            raise RuntimeError("falta psi_reference.json (train): ejecuta primero make ml-psi-ref --partition train")
+        inherited = json.loads(REFERENCE_PATH.read_text())
+        if inherited["model_sha256"] != thresholds["model_sha256"]:
+            raise RuntimeError("psi_reference.json es de otro champion: regenera primero la de train")
+    data = modeling.load_features(thresholds["feature_set"], (partition,),
+                                  columns=["step", "partition", *thresholds["feature_order"]])
+    if set(data["partition"].unique()) != {partition}:
+        raise RuntimeError(f"la referencia {partition} solo usa la partición {partition}")
+    lo, hi = cfg["split"][partition]
+    if data["step"].min() < lo or data["step"].max() > hi:
+        raise RuntimeError(f"la partición {partition} tiene pasos fuera de [{lo}, {hi}]")
+    reference = build_reference(data, model, family, thresholds, cfg["seed"], partition, inherited)
     digest = write_reference(reference)
-    print(f"psi_reference.json: {len(train):,} filas de train (pasos {reference['train_steps']}), "
+    print(f"{REFERENCE_PATHS[partition].name}: {len(data):,} filas de {partition} (pasos {reference[f'{partition}_steps']}), "
           f"top_features {reference['top_features']}, sha256 {digest[:12]}…")
     return 0

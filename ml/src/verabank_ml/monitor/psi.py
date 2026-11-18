@@ -6,6 +6,8 @@
 - Menos de 200 filas: ``insufficient``, sin alerta. Feature degenerada: PSI 0.
 - ``alert`` solo para ``score`` y las ``top_features`` de la referencia, con PSI > 0,25 en la ventana **y** en la
   anterior contigua (leída de la tabla o calculada en esta misma corrida). Las demás se registran sin alerta.
+- ``--reference train|valid`` (por defecto ``train``, §5f) elige la referencia; cada fila de ``drift_metrics`` lleva la suya y
+  la alerta de dos ventanas contiguas solo mira filas de la misma referencia. Umbral, ventanas y top-5 no cambian.
 - Calcula las ventanas completas pendientes (``--recompute``: todas) y escribe con upsert. Rol ``ml_job``.
 """
 
@@ -22,7 +24,7 @@ from datetime import UTC, datetime, timedelta
 
 from verabank_ml.features import load_config
 from verabank_ml.monitor import binning
-from verabank_ml.monitor.reference import REFERENCE_PATH
+from verabank_ml.monitor.reference import REFERENCE_PATHS
 
 WINDOW_STEPS = 24
 MIN_ROWS = 200
@@ -44,6 +46,7 @@ class Metric:
     is_top_feature: bool
     alert: bool
     model_version: str
+    reference: str = "train"
 
 
 def parse_epoch(text: str) -> datetime:
@@ -79,7 +82,7 @@ def compute_window(reference: dict, start: datetime, end: datetime, scores: Sequ
         bins = binning.Bins.from_json(spec)
         value = 0.0 if bins.degenerate or n == 0 else binning.psi(spec["expected"], binning.proportions(bins, values))
         out.append(Metric(start, end, name, value, n, bins.n_bins, bins.degenerate, n < MIN_ROWS,
-                          name in top, False, model_version))
+                          name in top, False, model_version, reference.get("partition", "train")))
     return out
 
 
@@ -125,9 +128,9 @@ def dsn_from_env() -> str:
 REAL = "model_version <> 'warmup' AND source_ref NOT LIKE 'perf-%%'"
 UPSERT = """
 INSERT INTO analytics.drift_metrics (window_start, window_end, feature, psi, n_current, n_bins, degenerate,
-                                     insufficient, is_top_feature, alert, model_version, computed_at)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
-ON CONFLICT (window_start, feature) DO UPDATE SET
+                                     insufficient, is_top_feature, alert, model_version, reference, computed_at)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+ON CONFLICT (window_start, feature, reference) DO UPDATE SET
   window_end = EXCLUDED.window_end, psi = EXCLUDED.psi, n_current = EXCLUDED.n_current, n_bins = EXCLUDED.n_bins,
   degenerate = EXCLUDED.degenerate, insufficient = EXCLUDED.insufficient, is_top_feature = EXCLUDED.is_top_feature,
   alert = EXCLUDED.alert, model_version = EXCLUDED.model_version, computed_at = now()
@@ -153,11 +156,13 @@ def load_window(conn, epoch: datetime, k: int) -> tuple[list[float], list[dict],
     return [float(r[0]) for r in rows], [r[1] for r in rows], version
 
 
-def stored_metrics(conn, epoch: datetime) -> dict[int, dict[str, Metric]]:
+def stored_metrics(conn, epoch: datetime, reference: str = "train") -> dict[int, dict[str, Metric]]:
+    """Las métricas ya guardadas de esa referencia: la alerta nunca mezcla ventanas de referencias distintas."""
     out: dict[int, dict[str, Metric]] = {}
     for row in conn.execute(
             "SELECT window_start, window_end, feature, psi, n_current, n_bins, degenerate, insufficient, "
-            "is_top_feature, alert, model_version FROM analytics.drift_metrics").fetchall():
+            "is_top_feature, alert, model_version, reference FROM analytics.drift_metrics WHERE reference = %s",
+            (reference,)).fetchall():
         m = Metric(row[0], row[1], row[2], float(row[3]), *row[4:])
         out.setdefault(window_index(epoch, m.window_start), {})[m.feature] = m
     return out
@@ -165,14 +170,14 @@ def stored_metrics(conn, epoch: datetime) -> dict[int, dict[str, Metric]]:
 
 def write(conn, metrics: Iterable[Metric]) -> int:
     rows = [(m.window_start, m.window_end, m.feature, m.psi, m.n_current, m.n_bins, m.degenerate, m.insufficient,
-             m.is_top_feature, m.alert, m.model_version) for m in metrics]
+             m.is_top_feature, m.alert, m.model_version, m.reference) for m in metrics]
     with conn.cursor() as cur:
         cur.executemany(UPSERT, rows)
     return len(rows)
 
 
 def run(conn, reference: dict, epoch: datetime, recompute: bool = False) -> dict[int, list[Metric]]:
-    stored = stored_metrics(conn, epoch)
+    stored = stored_metrics(conn, epoch, reference.get("partition", "train"))
     pending = [k for k in complete_windows(conn, epoch) if recompute or k not in stored]
     windows = [(k, *load_window(conn, epoch, k)) for k in pending]
     done = evaluate(reference, epoch, windows, stored)
@@ -199,15 +204,21 @@ def summary_table(done: dict[int, list[Metric]], reference: dict) -> str:
 
 def psi_command(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="python -m verabank_ml psi", description=__doc__.split("\n")[0])
+    parser.add_argument("--reference", choices=sorted(REFERENCE_PATHS), default="train",
+                        help="referencia del PSI: train (§5f, por defecto) o valid (pasos 425–550)")
     parser.add_argument("--recompute", action="store_true", help="recalcula todas las ventanas completas")
     parser.add_argument("--fail-on-alert", action="store_true", help="sale con 2 si alguna ventana calculada alerta")
     args = parser.parse_args(argv)
     import psycopg
 
-    reference = json.loads(REFERENCE_PATH.read_text())
+    path = REFERENCE_PATHS[args.reference]
+    if not path.exists():
+        raise SystemExit(f"falta {path.name}: ejecuta make ml-psi-ref")
+    reference = json.loads(path.read_text())
     epoch = parse_epoch(load_config()["sim_epoch"])
     with psycopg.connect(dsn_from_env(), autocommit=True) as conn:
         done = run(conn, reference, epoch, recompute=args.recompute)
+    print(f"referencia: {args.reference} ({path.name})")
     print(summary_table(done, reference))
     alerts = sorted({(window_steps(k)[0], m.feature) for k, ms in done.items() for m in ms if m.alert})
     print(f"ventanas calculadas: {len(done)}; alertas: {len(alerts)} {alerts if alerts else ''}".rstrip())

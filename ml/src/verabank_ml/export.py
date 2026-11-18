@@ -35,7 +35,7 @@ CHALLENGER_ONNX = "challenger/model.onnx"
 GOLDEN_CHALLENGER_PATH = ARTIFACTS / "golden_challenger.jsonl"
 MANIFEST_PATH = ARTIFACTS / "manifest.json"
 GOLDEN_REPORT_PATH = REPORTS / "golden_selection.json"
-PSI_REFERENCE = "psi_reference.json"
+PSI_REFERENCES = ("psi_reference.json", "psi_reference_valid.json")
 HISTORY_PARTITIONS = (
     "train",
     "gap",
@@ -325,9 +325,10 @@ def export_command(argv: list[str]) -> int:
     # La referencia del PSI (make ml-psi-ref) sigue en el manifiesto solo si es del mismo champion; si el champion
     # cambió, desaparece y la prueba de manifiesto exige regenerarla.
     previous = json.loads(MANIFEST_PATH.read_text()) if MANIFEST_PATH.exists() else {}
-    psi_entry = previous.get("artifacts", {}).get(PSI_REFERENCE)
-    if psi_entry and psi_entry.get("model_sha256") == model_sha and (ARTIFACTS / PSI_REFERENCE).exists():
-        manifest["artifacts"][PSI_REFERENCE] = psi_entry
+    for psi_reference in PSI_REFERENCES:
+        psi_entry = previous.get("artifacts", {}).get(psi_reference)
+        if psi_entry and psi_entry.get("model_sha256") == model_sha and (ARTIFACTS / psi_reference).exists():
+            manifest["artifacts"][psi_reference] = psi_entry
     tracking.dump_json(MANIFEST_PATH, manifest)
     print(f"estratos: {strata}")
     print(f"excluidos por historia > {gcfg['max_history']}: {exclusion['n_excluded']:,} de {exclusion['n_candidates']:,}; "
