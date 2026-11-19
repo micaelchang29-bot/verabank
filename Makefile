@@ -176,6 +176,7 @@ replay: ## Replay de PaySim (partición de prueba): make replay N=20000 TPS=50 [
 STEPS ?= 96
 BI_TPS ?= 100
 SAMPLE ?= 5000
+RATE ?= 50
 APPROVE ?= 0
 SETTLE_TIMEOUT ?= 15m
 CONFIRM ?=
@@ -221,8 +222,8 @@ KIND ?= 0
 load-seed: ## Cuentas de la carga: ACCOUNTS orígenes con saldo alto y 2.000 destinos internos (asientos desde CLEARING)
 	@scripts/sim.sh load-seed --accounts $(ACCOUNTS) --destinations 2000
 
-load-transfers: ## T-17: load-seed, k6 perf/transfers.js (50 TPS) con muestreo, settle, reconcile-full y verify-audit [DURATION=5m|30m] [PEAK=1]
-	@DURATION=$(DURATION) PEAK=$(PEAK) ACCOUNTS=$(ACCOUNTS) scripts/load-transfers.sh
+load-transfers: ## T-17: load-seed, k6 perf/transfers.js (50 TPS) con muestreo, settle, reconcile-full y verify-audit [DURATION=5m|30m] [PEAK=1] [RATE=50]
+	@DURATION=$(DURATION) PEAK=$(PEAK) RATE=$(RATE) ACCOUNTS=$(ACCOUNTS) scripts/load-transfers.sh
 
 reconcile-full: ## Conciliación de §7 + Σ D = Σ C por transferencia + abiertas tras settle + k6 frente a filas loadtest; todo 0
 	@scripts/reconcile-full.sh

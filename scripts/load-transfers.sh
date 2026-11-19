@@ -37,7 +37,7 @@ scripts/sim.sh load-seed --accounts "$ACCOUNTS" --destinations 2000 || status=1
 step "rail simulado con REJECT=${REJECT}"
 RAIL_REJECT_RATE="$REJECT" "${COMPOSE_ALL[@]}" up -d --no-deps --wait rail-sim
 
-step "k6: DURATION=${DURATION} PEAK=${PEAK} (60 s de calentamiento sin umbrales)"
+step "k6: RATE=${RATE:-50} DURATION=${DURATION} PEAK=${PEAK} (60 s de calentamiento sin umbrales)"
 python3 perf/sample_metrics.py --base-url "http://localhost:${SERVER_PORT}" --out "$OUT/metrics.csv" &
 sampler=$!
 : >"$OUT/load-docker-stats.txt"
@@ -49,7 +49,7 @@ stats=$!
 set +e
 API_KEY="$LOADTEST_KEY" docker run --rm --network verabank_default -u "$(id -u):$(id -g)" -e API_KEY \
   -v "$ROOT/perf:/scripts:ro" -v "$OUT:/out" -e BASE_URL=http://transfer-service:8081 -e DURATION="$DURATION" \
-  -e PEAK="$PEAK" -e ACCOUNTS="$ACCOUNTS" "$K6_IMAGE" run --quiet /scripts/transfers.js 2>&1 | tee "$OUT/transfers-k6.log"
+  -e PEAK="$PEAK" -e RATE="${RATE:-50}" -e ACCOUNTS="$ACCOUNTS" "$K6_IMAGE" run --quiet /scripts/transfers.js 2>&1 | tee "$OUT/transfers-k6.log"
 k6_status=${PIPESTATUS[0]}
 set -e
 kill -TERM "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null || true
