@@ -1,0 +1,56 @@
+# Metabase (D9), la misma versión fijada que en Compose. Base de aplicación `metabase` con el rol metabase_app (la crea
+# el Job bootstrap). El dashboard se crea después con bi/setup_metabase.py apuntando a localhost:13000.
+apiVersion: v1
+kind: Service
+metadata:
+  name: metabase
+  labels: {app: metabase}
+spec:
+  selector: {app: metabase}
+  ports:
+    - {name: http, port: 3000, targetPort: 3000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metabase
+  labels: {app: metabase}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: metabase}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels: {app: metabase}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: metabase
+          image: metabase/metabase:v0.64.6.3
+          ports:
+            - {name: http, containerPort: 3000}
+          envFrom:
+            - configMapRef: {name: metabase-config}
+          env:
+            - {name: MB_DB_PASS, valueFrom: {secretKeyRef: {name: verabank-env, key: METABASE_DB_PASSWORD}}}
+          startupProbe:
+            httpGet: {path: /api/health, port: 3000}
+            periodSeconds: 5
+            failureThreshold: 72
+          readinessProbe:
+            httpGet: {path: /api/health, port: 3000}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /api/health, port: 3000}
+            periodSeconds: 20
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "1", memory: 1536Mi}

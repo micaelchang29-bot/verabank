@@ -60,7 +60,7 @@ jobs:
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
 
   contracts:
-    name: contratos (esquemas, ejemplos, OpenAPI)
+    name: contratos (esquemas, ejemplos, OpenAPI) y manifiestos de kind
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -72,6 +72,10 @@ jobs:
         run: python -m pip install check-jsonschema==0.33.0 openapi-spec-validator==0.7.1 pyyaml==6.0.2
       - name: contracts/validate.sh (metaesquema 2020-12, 14 event_type de §3.3, ejemplos con sobre y payload, OpenAPI)
         run: PYTHON=python contracts/validate.sh
+      - name: Manifiestos de kind (kubectl kustomize y comprobación estática, sin clúster; ADR-13 D12)
+        run: |
+          kubectl kustomize --load-restrictor LoadRestrictionsNone deploy/kind/overlays/kind \
+            | python deploy/kind/check_manifests.py
 
   transfer-service:
     name: transfer-service (compilación, unitarias e integración)

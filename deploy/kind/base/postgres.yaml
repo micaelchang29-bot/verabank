@@ -1,0 +1,78 @@
+# PostgreSQL 16 (la misma imagen que Compose). Inicializa los roles con db/init (configMapGenerator); las contraseñas
+# vienen del Secret verabank-env (make kind-secrets, desde .env). Todas las de los roles están en el entorno del pod:
+# smoke y los jobs de carga entran con kubectl exec y las leen de ahí, sin pasarlas por la línea de comandos.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels: {app: postgres}
+spec:
+  selector: {app: postgres}
+  ports:
+    - {name: pg, port: 5432, targetPort: 5432}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels: {app: postgres}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: postgres
+          image: postgres:16.16
+          ports:
+            - {name: pg, containerPort: 5432}
+          env:
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: verabank-env, key: POSTGRES_DB}}}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: verabank-env, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: POSTGRES_PASSWORD}}}
+            - {name: VERABANK_TRANSFER_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: VERABANK_TRANSFER_PASSWORD}}}
+            - {name: VERABANK_RISK_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: VERABANK_RISK_PASSWORD}}}
+            - {name: VERABANK_BI_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: VERABANK_BI_PASSWORD}}}
+            - {name: RISK_SVC_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: RISK_SVC_PASSWORD}}}
+            - {name: SIM_LOADER_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: SIM_LOADER_PASSWORD}}}
+            - {name: ML_JOB_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: ML_JOB_PASSWORD}}}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -h 127.0.0.1 -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 1Gi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: initdb, mountPath: /docker-entrypoint-initdb.d, readOnly: true}
+            - {name: roles, mountPath: /sql, readOnly: true}
+      volumes:
+        - name: initdb
+          configMap: {name: postgres-initdb}
+        - name: roles
+          configMap: {name: postgres-roles}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: {storage: 5Gi}

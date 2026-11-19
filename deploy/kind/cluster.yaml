@@ -1,0 +1,15 @@
+# Clúster kind de VeraBank (ADR-13, D12): un nodo; transfer-service en el host 18080 y Metabase en el 13000.
+# make kind-up lo crea con: kind create cluster --name verabank --config deploy/kind/cluster.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080      # NodePort de transfer-service (overlays/kind)
+        hostPort: 18080
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 30300      # NodePort de Metabase
+        hostPort: 13000
+        listenAddress: "127.0.0.1"
+        protocol: TCP

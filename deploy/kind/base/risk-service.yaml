@@ -1,0 +1,124 @@
+# risk-service: una imagen, dos despliegues (ADR-08). scoring ×2 con PodDisruptionBudget; stream ×1.
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk-scoring
+  labels: {app: risk-scoring}
+spec:
+  selector: {app: risk-scoring}
+  ports:
+    - {name: http, port: 8081, targetPort: 8081}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-scoring
+  labels: {app: risk-scoring}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: risk-scoring}
+  strategy:
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {app: risk-scoring}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: risk-scoring
+          image: verabank/risk-service:dev
+          imagePullPolicy: Never
+          ports:
+            - {name: http, containerPort: 8081}
+          envFrom:
+            - configMapRef: {name: risk-scoring-config}
+          env:
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: verabank-env, key: POSTGRES_DB}}}
+            - {name: RISK_SVC_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: RISK_SVC_PASSWORD}}}
+          startupProbe:
+            httpGet: {path: /q/health/started, port: 8081}
+            periodSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /q/health/ready, port: 8081}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /q/health/live, port: 8081}
+            periodSeconds: 10
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 768Mi}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: risk-scoring
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: risk-scoring}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk-stream
+  labels: {app: risk-stream}
+spec:
+  selector: {app: risk-stream}
+  ports:
+    - {name: http, port: 8082, targetPort: 8082}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-stream
+  labels: {app: risk-stream}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: risk-stream}
+  strategy:
+    type: Recreate                     # un solo consumidor del grupo a la vez
+  template:
+    metadata:
+      labels: {app: risk-stream}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: risk-stream
+          image: verabank/risk-service:dev
+          imagePullPolicy: Never
+          ports:
+            - {name: http, containerPort: 8082}
+          envFrom:
+            - configMapRef: {name: risk-stream-config}
+          env:
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: verabank-env, key: POSTGRES_DB}}}
+            - {name: RISK_SVC_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: RISK_SVC_PASSWORD}}}
+            - {name: VERABANK_API_KEYS, valueFrom: {secretKeyRef: {name: verabank-env, key: VERABANK_API_KEYS}}}
+          startupProbe:
+            httpGet: {path: /q/health/started, port: 8082}
+            periodSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /q/health/ready, port: 8082}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /q/health/live, port: 8082}
+            periodSeconds: 10
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {cpu: "1", memory: 640Mi}

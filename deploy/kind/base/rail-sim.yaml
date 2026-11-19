@@ -1,0 +1,48 @@
+# Rail interbancario simulado: sin él las transferencias EXTERNAL no cierran. Estado SQLite en un emptyDir (como el
+# volumen rail-state de Compose, pero se pierde con el pod: el rail es un simulador). Sin HTTP: readiness por el archivo
+# --ready-file y liveness por el latido, que solo avanza si el bucle de consumo avanza.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rail-sim
+  labels: {app: rail-sim}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: rail-sim}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels: {app: rail-sim}
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: rail-sim
+          image: verabank/rail-sim:dev
+          imagePullPolicy: Never
+          args: ["--bootstrap-servers", "kafka:9092", "--reject-rate", "0", "--delay-ms", "20:200",
+                 "--state-db", "/state/rail.db", "--ready-file", "/state/ready", "--heartbeat-file", "/state/heartbeat.json"]
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/state/ready"]
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/state/heartbeat.json') > 60)"]
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 4
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 2"]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - {name: state, mountPath: /state}
+      volumes:
+        - name: state
+          emptyDir: {}

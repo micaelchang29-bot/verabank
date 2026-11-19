@@ -1,0 +1,59 @@
+# transfer-service ×2 con scoring remoto (como el perfil risk de Compose). Migra core y audit al arrancar; el Job
+# db-migrate ya las aplicó con la misma configuración de Flyway, así que solo las valida.
+apiVersion: v1
+kind: Service
+metadata:
+  name: transfer-service
+  labels: {app: transfer-service}
+spec:
+  selector: {app: transfer-service}
+  ports:
+    - {name: http, port: 8081, targetPort: 8081}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transfer-service
+  labels: {app: transfer-service}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: transfer-service}
+  strategy:
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels: {app: transfer-service}
+    spec:
+      terminationGracePeriodSeconds: 40
+      containers:
+        - name: transfer-service
+          image: verabank/transfer-service:dev
+          imagePullPolicy: Never          # imagen local cargada con kind load docker-image
+          ports:
+            - {name: http, containerPort: 8081}
+          envFrom:
+            - configMapRef: {name: transfer-service-config}
+          env:
+            - {name: POSTGRES_DB, valueFrom: {secretKeyRef: {name: verabank-env, key: POSTGRES_DB}}}
+            - {name: VERABANK_TRANSFER_PASSWORD, valueFrom: {secretKeyRef: {name: verabank-env, key: VERABANK_TRANSFER_PASSWORD}}}
+            - {name: VERABANK_API_KEYS, valueFrom: {secretKeyRef: {name: verabank-env, key: VERABANK_API_KEYS}}}
+          startupProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8081}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: 8081}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: 8081}
+            periodSeconds: 10
+            failureThreshold: 6
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]   # deja que el Service la saque antes del apagado
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 768Mi}

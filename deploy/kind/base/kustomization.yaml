@@ -1,0 +1,105 @@
+# Base de los manifiestos de VeraBank (ADR-13, D12). Los ConfigMaps salen de los archivos del repositorio, sin copias:
+# migraciones (db/migrations), roles e inicialización (db/init), permisos, semillas y tópicos. Esos archivos están fuera
+# de este directorio, así que se construye con --load-restrictor LoadRestrictionsNone (make kind-deploy y kind-check).
+# Credenciales: ninguna aquí; el Secret verabank-env lo crea make kind-secrets desde .env.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs: {app.kubernetes.io/part-of: verabank}
+resources:
+  - postgres.yaml
+  - kafka.yaml
+  - jobs.yaml
+  - transfer-service.yaml
+  - risk-service.yaml
+  - rail-sim.yaml
+  - metabase.yaml
+configMapGenerator:
+  - name: migrations-core
+    files:
+      - ../../../db/migrations/core/V1__create_schema_core.sql
+      - ../../../db/migrations/core/V2__customers.sql
+      - ../../../db/migrations/core/V3__accounts.sql
+      - ../../../db/migrations/core/V4__transfers.sql
+      - ../../../db/migrations/core/V5__transactions.sql
+      - ../../../db/migrations/core/V6__saga_state.sql
+      - ../../../db/migrations/core/V7__outbox.sql
+      - ../../../db/migrations/core/V8__processed_messages.sql
+  - name: migrations-audit
+    files:
+      - ../../../db/migrations/audit/V9__create_schema_audit.sql
+      - ../../../db/migrations/audit/V10__audit_log.sql
+      - ../../../db/migrations/audit/V11__audit_chain_hash.sql
+      - ../../../db/migrations/audit/V12__audit_immutability.sql
+      - ../../../db/migrations/audit/V13__audit_append.sql
+  - name: migrations-risk
+    files:
+      - ../../../db/migrations/risk/V1__create_schema_risk.sql
+      - ../../../db/migrations/risk/V2__scoring_log.sql
+      - ../../../db/migrations/risk/V3__fraud_labels.sql
+      - ../../../db/migrations/risk/V4__aml_alerts.sql
+      - ../../../db/migrations/risk/V5__transfer_facts.sql
+      - ../../../db/migrations/risk/V6__aml_rules.sql
+      - ../../../db/migrations/risk/V7__country_risk.sql
+      - ../../../db/migrations/risk/V8__aml_exempt_accounts.sql
+      - ../../../db/migrations/risk/V9__processed_messages.sql
+      - ../../../db/migrations/risk/V10__seed_aml_rules.sql
+  - name: migrations-analytics
+    files:
+      - ../../../db/migrations/analytics/V1__create_schema_analytics.sql
+      - ../../../db/migrations/analytics/V2__v_transfer_outcomes.sql
+      - ../../../db/migrations/analytics/V3__drift_metrics.sql
+      - ../../../db/migrations/analytics/V4__fraud_reasons.sql
+      - ../../../db/migrations/analytics/V5__audit_verify_chain.sql
+      - ../../../db/migrations/analytics/V6__drift_metrics_reference.sql
+  - name: postgres-initdb
+    files:
+      - ../../../db/init/initdb.d/10-roles.sh
+      - ../../../db/init/initdb.d/20-roles-runtime.sh
+  - name: postgres-roles
+    files:
+      - ../../../db/init/roles.sql
+      - ../../../db/init/roles_runtime.sql
+  - name: db-grants
+    files:
+      - ../../../db/init/grants.sql
+  - name: kafka-topics
+    files:
+      - ../../../deploy/kafka/create-topics.sh
+  - name: seed-data
+    files:
+      - scripts/seed.sh
+      - ../../../db/seed/01_core_seed.sql
+      - ../../../db/reconcile.sql
+      - ../../../db/seed/country_risk.csv
+  - name: transfer-service-config
+    literals:
+      - VERABANK_SCORING_MODE=remote
+      - RISK_SERVICE_URL=http://risk-scoring:8081
+      - POSTGRES_HOST=postgres
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+  - name: risk-scoring-config
+    literals:
+      - VERABANK_ROLE=scoring
+      - SERVER_PORT=8081
+      - POSTGRES_HOST=postgres
+      - VERABANK_SCORING_POOL_SIZE=10
+      - JAVA_OPTS=-Xms256m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -XX:MaxDirectMemorySize=64m -XX:+ExitOnOutOfMemoryError
+  - name: risk-stream-config
+    literals:
+      - VERABANK_ROLE=stream
+      - SERVER_PORT=8082
+      - POSTGRES_HOST=postgres
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - JAVA_OPTS=-Xms128m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -XX:MaxDirectMemorySize=64m -XX:+ExitOnOutOfMemoryError
+  - name: metabase-config
+    literals:
+      - JAVA_OPTS=-Xmx1g
+      - MB_DB_TYPE=postgres
+      - MB_DB_HOST=postgres
+      - MB_DB_PORT=5432
+      - MB_DB_DBNAME=metabase
+      - MB_DB_USER=metabase_app
+      - MB_ANON_TRACKING_ENABLED=false
+      - MB_CHECK_FOR_UPDATES=false
+      - MB_SITE_LOCALE=es
