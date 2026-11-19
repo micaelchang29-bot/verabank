@@ -12,6 +12,7 @@ from verabank_ml.export import export_command
 from verabank_ml.features import features_command
 from verabank_ml.fixtures import fixtures_command
 from verabank_ml.monitor.psi import psi_command
+from verabank_ml.monitor.verdict import drift_verdict_command
 from verabank_ml.monitor.reference import psi_reference_command
 from verabank_ml.paysim import check_paysim
 from verabank_ml.reasons import reasons_command
@@ -23,6 +24,7 @@ from verabank_ml.train import train_command
 COMMANDS: dict[str, Callable[[list[str]], int]] = {
     "clock-guard": clock_guard_command,
     "check-paysim": check_paysim,
+    "drift-verdict": drift_verdict_command,
     "eval-test": eval_test_command,
     "export": export_command,
     "features": features_command,

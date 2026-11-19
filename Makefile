@@ -101,7 +101,7 @@ ml-psi-ref: ## Referencias del PSI: train (psi_reference.json, §5f) y valid (ps
 	@MLFLOW_DISABLE_AGENT_HINT=1 uv run --project ml --frozen python -m verabank_ml psi-reference --partition train
 	@MLFLOW_DISABLE_AGENT_HINT=1 uv run --project ml --frozen python -m verabank_ml psi-reference --partition valid
 
-psi: ## PSI de las ventanas completas pendientes en analytics.drift_metrics (rol ml_job): make psi [ARGS="--reference valid --recompute --fail-on-alert"] (por defecto --reference train)
+psi: ## PSI de las ventanas completas pendientes en analytics.drift_metrics (rol ml_job): make psi [ARGS="--reference valid --recompute --fail-on-alert"] (por defecto --reference valid, la única que genera alertas; train es informativa)
 	@scripts/ml-job.sh psi $(ARGS)
 
 ml-reasons: ## Tres razones por caso REVIEW/BLOCK del modelo en analytics.fraud_reasons (SHAP o coeficiente; rol ml_job) [ARGS=--limit N]
@@ -119,7 +119,7 @@ promote: ## Promueve el challenger si en sombra baja el costo ≥ 2 % sin empeor
 rollback: ## Vuelve al previous_champion y reexporta
 	@scripts/ml-job.sh rollback --confirm
 
-drift-demo: ## DESTRUCTIVO (CONFIRM=yes): reset, tanda base 577–624, PSI (valid; train como hallazgo), deriva 625–672 × 3 y alertas [DEMO_TPS=100] [FORCE=1]
+drift-demo: ## DESTRUCTIVO (CONFIRM=yes): reset, tanda base 577–624, PSI (alerta solo con valid; train informativo), deriva 625–696 × 3 y veredicto [DEMO_TPS=100] [FORCE=1]
 	@CONFIRM=$(CONFIRM) DEMO_TPS=$(DEMO_TPS) FORCE=$(FORCE) scripts/drift-demo.sh
 
 ml-fixtures: ## Escenarios de features con respuesta conocida en contracts/fixtures/feature_scenarios.json (sin datos)
