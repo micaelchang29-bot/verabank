@@ -296,4 +296,5 @@ jobs:
           retention-days: 7
       - name: docker compose down -v
         if: always()
-        run: if [[ -f .env ]]; then make reset-data CONFIRM=yes; else echo "sin .env: no se levantó Compose"; fi
+        run: |
+          if [[ -f .env ]]; then make reset-data CONFIRM=yes; else echo "sin .env, no se levantó Compose"; fi
