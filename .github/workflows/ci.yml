@@ -85,6 +85,7 @@ jobs:
     timeout-minutes: 30
     env:
       MAVEN_OPTS: -Xmx512m
+      MVNW_VERBOSE: "true"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -114,6 +115,7 @@ jobs:
     timeout-minutes: 30
     env:
       MAVEN_OPTS: -Xmx512m
+      MVNW_VERBOSE: "true"
     steps:
       - uses: actions/checkout@v7
       - name: Artefactos del modelo presentes (T-13 los lee de ml/artifacts)
