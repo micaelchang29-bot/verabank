@@ -28,4 +28,4 @@ campos de abajo en este orden, para que otro agente los procese. Las cifras son 
 | id | paso | estado | tipo | resumen |
 |---|---|---|---|---|
 | 20261119-0335-reconcile-full-acumulado | 2 | resuelto | prueba | (c) de reconcile-full suma las cargas anteriores en la misma base; no es error del sistema |
-| 20261119-0334-reinicio-wsl | 2 | resuelto | entorno | WSL/Docker se reiniciaron a mitad de E1; recuperación sin descuadres y E1 repetido |
+| 20261119-0334-reinicio-wsl | 2 | resuelto | entorno | dos pantallazos azules (0x139, 0x119 del driver AMD) a mitad de E1; recuperación sin descuadres y E1 repetido |
