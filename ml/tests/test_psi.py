@@ -233,6 +233,19 @@ def test_k6_synthetic_rows_are_excluded(pg, ref):
     assert next(m for m in done[24] if m.feature == "score").n_current == 400
 
 
+def test_history_rows_of_the_replay_are_not_real_rows(pg, ref):
+    """El calentamiento dirigido (ADR-13) deja una fila ``warmup`` por destino en su primera aparición, muy atrás: ni
+    abre ventanas vacías desde el paso 10 ni cuenta en una ventana real."""
+    pg.reset()
+    history = [(at_step(step), {}, 0.0, "warmup") for step in (10, 10, 120, 400, 552, 590) for _ in range(300)]
+    insert_rows(pg, history + rows_for(ref, 24, 0) + rows_for(ref, 25, 0, n=5))
+    with pg.connect() as conn:
+        done = psi.run(conn, ref, EPOCH)
+        assert psi.complete_windows(conn, EPOCH) == [24]
+    assert sorted(done) == [24]                                       # sin ventanas 0 a 23 y sin las 300 filas del paso 590
+    assert next(m for m in done[24] if m.feature == "score").n_current == 400
+
+
 def test_job_is_idempotent_and_recompute_rewrites_the_same_rows(pg, ref):
     pg.reset()
     insert_rows(pg, rows_for(ref, 24, 0) + rows_for(ref, 25, 1) + rows_for(ref, 26, 0, n=10))
