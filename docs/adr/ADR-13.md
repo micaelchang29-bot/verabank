@@ -287,12 +287,34 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   El simulador entra a la base del clúster con `VERABANK_KIND=1` (`kubectl exec`; la contraseña se lee del entorno del
   pod, no viaja), lo que usa `kind-chaos` para `load-seed`.
 - Consecuencias: `make kind-check` (también en el job `contratos` de la CI) valida sin clúster límites, probes, réplicas,
-  roles, PDB, etiquetas, credenciales, migraciones completas y NodePort; siete mutaciones (imagen `latest`, sin `preStop`,
-  contraseña literal, scoring ×1, sin PDB, una migración ausente, Metabase con 6 GiB) fallan. Límites de memoria: 7,38 GiB
-  de larga vida más 0,50 GiB del mayor Job = 7,88 GiB (≤ 10 GiB, §1.2). **Sin corrida real todavía**: `kind` no está
-  instalado en el equipo y la corrida exige detener Compose; quedan pendientes `make kind-up && make kind-deploy &&
-  make kind-smoke && make kind-chaos`, `kubectl get pods` y la memoria real del nodo. Al añadir una migración hay que
-  listarla en `deploy/kind/base/kustomization.yaml` (la comprobación lo exige).
+  roles, PDB, etiquetas, credenciales, migraciones completas, NodePort, imagen del nodo por digest y
+  `enableServiceLinks: false` en todo pod; las mutaciones probadas (imagen `latest`, sin `preStop`, contraseña literal,
+  scoring ×1, sin PDB, una migración ausente, Metabase con 6 GiB, nodo sin digest) fallan. Límites de memoria: 7,38 GiB
+  de larga vida más 0,50 GiB del mayor Job = 7,88 GiB (≤ 10 GiB, §1.2). **Corrida real (2026-11-19)**: el primer
+  despliegue falló porque Kubernetes inyecta `POSTGRES_PORT=tcp://<ip>:5432` por el Service `postgres` y los servicios
+  lo leían como puerto; con `enableServiceLinks: false` los 9 pods quedan Ready en 78 s, `make smoke KIND=1` verde y
+  `make kind-chaos` con 100 % de éxito, 0 FALLBACK y el reemplazo del pod de scoring Ready en 7 s; nodo con 5,50 GiB
+  reales. Al añadir una migración hay que listarla en `deploy/kind/base/kustomization.yaml` (la comprobación lo exige).
+
+### D16 · Cierre: arranque en frío, wrapper de Maven y cuello del rail
+
+- **Arranque en frío del scoring.** `make smoke` obtuvo FALLBACK en la primera transferencia tras el arranque en una
+  ejecución de la CI. El calentamiento recorría la ruta en serie por pocas conexiones y no tocaba el parser, la
+  serialización ni la creación de las métricas. Ahora cada conexión del pool ejecuta una consulta de cada tipo (con el
+  INSERT revertido), las pasadas usan el parser y serializan la respuesta y las métricas se crean antes de `ready`;
+  `VERABANK_WARMUP_ROUNDS` y `VERABANK_WARMUP_TIMEOUT` son configurables. Primera llamada tras `ready` (prueba de
+  integración): 87–108 ms antes, 52–53 ms después; tres `make smoke` desde cero: 33, 22 y 20 ms, todas `MODEL`.
+- **Wrapper de Maven.** La CI fallaba de forma intermitente validando el SHA-256 del wrapper: `mvnw` lo descargaba con
+  `wget -q` y, si la descarga fallaba, lo borraba sin aviso. Se versionó `maven-wrapper.jar` en ambos módulos (hash ya
+  fijado) y la CI ya no lo descarga.
+- **Cuello del rail (5.G.2).** Causa medida: la cadena de auditoría retiene `pg_advisory_xact_lock(815001)` hasta el
+  commit, con su `fsync` (~2 ms en el VHD de WSL2): techo de ≈ 200–230 transacciones con auditoría por segundo,
+  ≈ 72–82 transferencias/s. Más hilos de consumo (+15 % de volumen, p95 ×2,2) no lo mueven; sin `fsync` desaparece
+  (experimento, no arreglo). No se aplicó ningún cambio: las salidas son de diseño y quedan para decisión
+  (`docs/resultados/diagnostico-rail.md`).
+- **Compensación de las FAILED.** `reconcile-full` no la medía (filtraba `completed_at`, que solo se fija en
+  COMPLETED); medida por el cierre de la saga, en la carga de 30 min con pico: p50 0,25 s, p99 197 s, 77,8 % < 60 s
+  frente al objetivo de 99 % de §1.2. **No cumple** bajo el pico, por el mismo techo.
 
 ## Límites conocidos
 
@@ -302,9 +324,9 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 - **Verificador sin ancla externa (D5).**
 - **Desajuste de historia heredado en el reentrenamiento (D7, 4/D1).**
 - **Muestra sintética en la CI (D11).**
-- **Cuello del rail (D15, 5.G.2).** A 100 TPS todo EXTERNAL `rail.replies.v1` acumula retraso; pendiente de
-  diagnóstico. La demo usa 25 TPS y 45 min de settle para no depender de él.
-- **kind sin corrida real (D12).** Manifiestos validados en estático; falta desplegarlos en un clúster.
+- **Cuello del rail (D15, D16).** Diagnosticado: la cadena de auditoría serializa cada commit con su `fsync`; techo de
+  ≈ 72–82 transferencias/s en la laptop. Sin resolver (decisión de diseño pendiente); la compensación de las FAILED
+  cumple 77,8 % < 60 s bajo el pico de 100 TPS (objetivo 99 %). La demo usa 25 TPS y 45 min de settle.
 - **Filas sintéticas de k6 en `scoring_log` (D2).** Se excluyen por el prefijo `perf-` de `source_ref`; un generador
   nuevo que no lo use contaminaría PSI, razones y reentrenamiento.
 - **Transferencias con reloj real en la línea de tiempo simulada.** `make smoke`, `make demo-idempotency` y la carga T-17
