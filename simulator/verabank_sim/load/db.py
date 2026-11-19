@@ -1,7 +1,9 @@
 """Acceso a PostgreSQL por ``psql`` dentro del contenedor, como ``scripts/db-lib.sh`` (sin dependencias nuevas).
 
 La contraseña viaja por entorno (``-e PGPW`` sin valor), nunca por la línea de comandos. Con
-``VERABANK_DB_CONTAINER=<nombre>`` usa ``docker exec`` sobre ese contenedor; si no, el servicio ``postgres`` de Compose.
+``VERABANK_DB_CONTAINER=<nombre>`` usa ``docker exec`` sobre ese contenedor; con ``VERABANK_KIND=1``, ``kubectl exec`` sobre
+el StatefulSet ``postgres`` del clúster kind, cuyo pod ya tiene las contraseñas en su entorno (la contraseña no viaja);
+si no, el servicio ``postgres`` de Compose.
 """
 
 from __future__ import annotations
@@ -14,6 +16,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 _SCRIPT = ('u=$1; d=$2; shift 2; PGPASSWORD="$PGPW" exec psql -X -q -h 127.0.0.1 -U "$u" -d "$d" '
            '-v ON_ERROR_STOP=1 "$@"')
+# kind: la contraseña se lee de la variable del mismo nombre en el entorno del pod (Secret verabank-env).
+_KUBE_SCRIPT = ('u=$1; d=$2; v=$3; shift 3; eval "PGPASSWORD=\\"\\${$v}\\""; export PGPASSWORD; '
+                'exec psql -X -q -h 127.0.0.1 -U "$u" -d "$d" -v ON_ERROR_STOP=1 "$@"')
 
 
 class PsqlError(RuntimeError):
@@ -31,6 +36,10 @@ class DockerPsql:
         return self.database or os.environ.get("POSTGRES_DB", "verabank")
 
     def command(self, *psql_args: str) -> list[str]:
+        if os.environ.get("VERABANK_KIND") == "1":
+            context = ["--context", f"kind-{os.environ.get('KIND_CLUSTER', 'verabank')}"]
+            return ["kubectl", *context, "exec", "-i", "statefulset/postgres", "--", "sh", "-c", _KUBE_SCRIPT, "sh",
+                    self.role, self._database(), self.password_var, *psql_args]
         if self.container or os.environ.get("VERABANK_DB_CONTAINER"):
             target = ["docker", "exec", "-i", "-e", "PGPW", self.container or os.environ["VERABANK_DB_CONTAINER"]]
         else:
