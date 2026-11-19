@@ -248,8 +248,17 @@ jobs:
                       "transfer-service/Dockerfile verabank/transfer-service:dev transfer" \
                       "simulator/Dockerfile verabank/rail-sim:dev rail"; do
             read -r file tag scope <<<"$spec"
-            docker buildx build --load -f "$file" -t "$tag" \
-              --cache-from "type=gha,scope=$scope" --cache-to "type=gha,mode=max,scope=$scope" .
+            # Hasta 3 intentos: la descarga de la distribución de Maven desde repo.maven.apache.org falla a veces en los
+            # runners (docs/stop/20261119-0615-ci-maven-central.md); un fallo de compilación real falla las tres veces.
+            for attempt in 1 2 3; do
+              if docker buildx build --load -f "$file" -t "$tag" \
+                   --cache-from "type=gha,scope=$scope" --cache-to "type=gha,mode=max,scope=$scope" .; then
+                break
+              fi
+              [[ $attempt == 3 ]] && exit 1
+              echo "::warning::build de $tag falló (intento $attempt); reintento en 20 s"
+              sleep 20
+            done
           done
       - uses: astral-sh/setup-uv@v10.3.3
         with:
@@ -287,4 +296,4 @@ jobs:
           retention-days: 7
       - name: docker compose down -v
         if: always()
-        run: make reset-data CONFIRM=yes
+        run: if [[ -f .env ]]; then make reset-data CONFIRM=yes; else echo "sin .env: no se levantó Compose"; fi
