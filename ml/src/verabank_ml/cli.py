@@ -12,8 +12,8 @@ from verabank_ml.export import export_command
 from verabank_ml.features import features_command
 from verabank_ml.fixtures import fixtures_command
 from verabank_ml.monitor.psi import psi_command
-from verabank_ml.monitor.verdict import drift_verdict_command
 from verabank_ml.monitor.reference import psi_reference_command
+from verabank_ml.monitor.verdict import drift_verdict_command
 from verabank_ml.paysim import check_paysim
 from verabank_ml.reasons import reasons_command
 from verabank_ml.report import report_command
