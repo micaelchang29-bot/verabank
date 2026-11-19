@@ -144,3 +144,12 @@ def test_the_demo_script_runs_the_72_step_drift_and_ends_with_the_verdict():
     assert "replay --steps 72 --first-step 625 --amount-factor 3" in script
     assert "ml-job.sh psi --reference valid" in script and "ml-job.sh psi --reference train" in script
     assert script.rstrip().splitlines()[-1] == "scripts/ml-job.sh drift-verdict"          # su código de salida es el de la demo
+
+
+def test_the_demo_defaults_to_25_tps_and_a_45_minute_settle_both_overridable():
+    script = (ROOT / "scripts" / "drift-demo.sh").read_text()
+    assert 'tps="${DEMO_TPS:-25}"' in script and 'settle_timeout="${SETTLE_TIMEOUT:-45m}"' in script
+    assert script.count('scripts/sim.sh settle --timeout "$settle_timeout"') == 2           # base y deriva
+    makefile = (ROOT / "Makefile").read_text()
+    assert "DEMO_TPS ?= 25" in makefile and "SETTLE_TIMEOUT=$(DEMO_SETTLE_TIMEOUT)" in makefile
+    assert "$(origin SETTLE_TIMEOUT)),$(SETTLE_TIMEOUT),45m)" in makefile

@@ -7,7 +7,10 @@
 #   cumple, imprime las tablas y sale con 1 (STOP de D3: no se tocan umbral, ventanas, referencias ni top-5).
 . "$(dirname "$0")/lib.sh"
 
-tps="${DEMO_TPS:-100}"
+# 25 TPS y 45 min de settle por defecto: a 100 TPS todo EXTERNAL el rail acumula retraso en rail.replies.v1 y la
+# tanda de deriva no cerraba en 15 min (ADR-13, D3; el cuello del rail sigue pendiente de diagnóstico, 5.G.2).
+tps="${DEMO_TPS:-25}"
+settle_timeout="${SETTLE_TIMEOUT:-45m}"
 if [[ "${CONFIRM:-}" != "yes" ]]; then
   echo "drift-demo borra los datos de Compose (reset-data). Repite con: make drift-demo CONFIRM=yes" >&2
   exit 1
@@ -30,12 +33,12 @@ scripts/up.sh
 scripts/ml-job.sh clock-guard ${FORCE:+--force}
 echo "== tanda base: pasos 577–624"
 scripts/sim.sh replay --steps 48 --first-step 577 --tps "$tps"
-scripts/sim.sh settle
+scripts/sim.sh settle --timeout "$settle_timeout"
 psi_both
 tables valid
 echo "== tanda de deriva: pasos 625–696, montos × 3"
 scripts/sim.sh replay --steps 72 --first-step 625 --amount-factor 3 --tps "$tps"
-scripts/sim.sh settle
+scripts/sim.sh settle --timeout "$settle_timeout"
 psi_both
 tables valid
 echo "== HALLAZGO (sin criterio de aceptación): la misma base contra la referencia de entrenamiento"

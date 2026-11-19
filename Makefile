@@ -119,8 +119,8 @@ promote: ## Promueve el challenger si en sombra baja el costo ≥ 2 % sin empeor
 rollback: ## Vuelve al previous_champion y reexporta
 	@scripts/ml-job.sh rollback --confirm
 
-drift-demo: ## DESTRUCTIVO (CONFIRM=yes): reset, tanda base 577–624, PSI (alerta solo con valid; train informativo), deriva 625–696 × 3 y veredicto [DEMO_TPS=100] [FORCE=1]
-	@CONFIRM=$(CONFIRM) DEMO_TPS=$(DEMO_TPS) FORCE=$(FORCE) scripts/drift-demo.sh
+drift-demo: ## DESTRUCTIVO (CONFIRM=yes): reset, tanda base 577–624, PSI (alerta solo con valid; train informativo), deriva 625–696 × 3 y veredicto [DEMO_TPS=25] [SETTLE_TIMEOUT=45m] [FORCE=1]
+	@CONFIRM=$(CONFIRM) DEMO_TPS=$(DEMO_TPS) SETTLE_TIMEOUT=$(DEMO_SETTLE_TIMEOUT) FORCE=$(FORCE) scripts/drift-demo.sh
 
 ml-fixtures: ## Escenarios de features con respuesta conocida en contracts/fixtures/feature_scenarios.json (sin datos)
 	@uv run --project ml --frozen python -m verabank_ml fixtures
@@ -179,7 +179,9 @@ SAMPLE ?= 5000
 APPROVE ?= 0
 SETTLE_TIMEOUT ?= 15m
 CONFIRM ?=
-DEMO_TPS ?= 100
+DEMO_TPS ?= 25
+# Plazo del settle de drift-demo: 45m salvo que se pase SETTLE_TIMEOUT explícitamente (make drift-demo SETTLE_TIMEOUT=60m).
+DEMO_SETTLE_TIMEOUT = $(if $(filter command line environment,$(origin SETTLE_TIMEOUT)),$(SETTLE_TIMEOUT),45m)
 REASON ?= manual
 
 settle: ## Espera a que no queden PENDING ni PROCESSING (rol BI): make settle [APPROVE=1 aprueba las IN_REVIEW] [SETTLE_TIMEOUT=15m]
