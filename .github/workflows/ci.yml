@@ -85,7 +85,6 @@ jobs:
     timeout-minutes: 30
     env:
       MAVEN_OPTS: -Xmx512m
-      MVNW_VERBOSE: "true"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -98,6 +97,8 @@ jobs:
         run: |
           docker pull -q postgres:16.16
           docker pull -q apache/kafka:4.3.2
+      - name: Wrapper de Maven versionado (sin descarga; su SHA-256 lo valida mvnw)
+        run: test -s transfer-service/.mvn/wrapper/maven-wrapper.jar || { echo "falta transfer-service/.mvn/wrapper/maven-wrapper.jar"; exit 1; }
       - name: ./mvnw verify
         working-directory: transfer-service
         run: ./mvnw -B -ntp verify
@@ -115,7 +116,6 @@ jobs:
     timeout-minutes: 30
     env:
       MAVEN_OPTS: -Xmx512m
-      MVNW_VERBOSE: "true"
     steps:
       - uses: actions/checkout@v7
       - name: Artefactos del modelo presentes (T-13 los lee de ml/artifacts)
@@ -133,6 +133,8 @@ jobs:
         run: |
           docker pull -q postgres:16.16
           docker pull -q apache/kafka:4.3.2
+      - name: Wrapper de Maven versionado (sin descarga; su SHA-256 lo valida mvnw)
+        run: test -s risk-service/.mvn/wrapper/maven-wrapper.jar || { echo "falta risk-service/.mvn/wrapper/maven-wrapper.jar"; exit 1; }
       - name: ./mvnw verify (roles scoring y stream, paridad con golden.jsonl)
         working-directory: risk-service
         run: ./mvnw -B -ntp verify
