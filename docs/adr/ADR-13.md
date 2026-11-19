@@ -255,7 +255,11 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   `verabank-env` lo crea `make kind-deploy` desde `.env` por un descriptor (`--from-env-file=<(…)`), sin valores en la línea
   de comandos ni en los manifiestos; `kind-deploy` aborta si Compose corre. `make kind-up`, `kind-deploy`, `kind-smoke`
   (= `make smoke KIND=1`), `kind-chaos` (k6 a 20 TPS, borrado forzado de un pod de scoring, éxito, `FALLBACK` y tiempo a
-  Ready), `kind-down CONFIRM=yes` y `kind-check`. kind fijado en v0.31.0; flujo `kind.yml` solo por `workflow_dispatch`.
+  Ready), `kind-down CONFIRM=yes` y `kind-check`. kind fijado en **v0.33.0**, verificada en la fuente oficial (`gh api repos/kubernetes-sigs/kind/releases/latest`,
+  2026-11-19; corrige la v0.31.0 tomada antes de un espejo de terceros), con el SHA-256 del binario Linux amd64 que
+  publica el release (`aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d`), comprobado antes de
+  ejecutarlo en `kind-up`, `kind-deploy`, `kind-down` y `kind.yml`; nodo `kindest/node:v1.37.0` fijado por digest. Flujo
+  `kind.yml` solo por `workflow_dispatch`.
   El simulador entra a la base del clúster con `VERABANK_KIND=1` (`kubectl exec`; la contraseña se lee del entorno del
   pod, no viaja), lo que usa `kind-chaos` para `load-seed`.
 - Consecuencias: `make kind-check` (también en el job `contratos` de la CI) valida sin clúster límites, probes, réplicas,
