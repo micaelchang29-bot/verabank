@@ -76,3 +76,15 @@ conservados): dashboard en http://localhost:3000/dashboard/2.
 ## Incidentes resueltos durante el cierre
 
 Registro completo en `docs/stop/` (un archivo por incidente con error, causa, solución y verificación).
+
+## Cierre
+
+| Paso | Fecha | Comando | Resultado |
+|---|---|---|---|
+| Firmas en mensajes | 2026-11-19 06:11 | `git log --format=%B \| grep -iE 'co-authored-by:\|generated with\|-session:'` | vacío |
+| Firmas en el árbol | 2026-11-19 06:11 | `grep -rniE 'co-authored-by\|generated with' --exclude=verabank-manual.md --exclude-dir=.git --exclude-dir=.githooks .` | vacío salvo el propio comando en `docs/fase-5-prompts.md` (no versionado); `check-signatures --tree` limpio |
+| Pull requests | 2026-11-19 06:11 | `gh pr list --state all` | no hay PR en el repositorio |
+| CI | 2026-11-19 06:25 | ejecución 44512993745 (commit `ce2a08d`) | 9 de 9 jobs en verde, incluido el humo con Compose |
+| Tag | 2026-11-19 | `git tag fase-5 && git push --tags` | sobre el commit de este documento (solo documentación respecto de `ce2a08d`) |
+
+Resets usados en el cierre: 7 de 10 (3 smoke, 1 diagnóstico, 2 T-17, 1 BI).
