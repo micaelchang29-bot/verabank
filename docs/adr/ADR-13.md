@@ -243,10 +243,28 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 ### D12 · kind (ampliación)
 
 - Contexto: ampliación fuera de la línea de corte (manual 0.1).
-- Decisión: módulo opcional con Kustomize, el rail simulado, un Job de Flyway y otro de tópicos; imágenes con
-  `kind load`; secretos desde `.env`; `kind-deploy` aborta si Compose corre.
-- Consecuencias: **no se construyó en esta fase**: `kind` no está instalado en el equipo y 5.A–5.H no quedaron cerrados
-  con sus corridas sobre base limpia (ver «Límites conocidos»).
+- Decisión: Kustomize con base y overlay `kind` en `deploy/kind/`; `cluster.yaml` publica transfer-service (NodePort
+  30080 → host 18080) y Metabase (30300 → 13000). transfer-service ×2, risk-scoring ×2 con `PodDisruptionBudget`
+  `minAvailable: 1`, risk-stream ×1, PostgreSQL y Kafka KRaft de un broker en StatefulSets con PVC, Metabase y el rail
+  simulado (readiness por su `--ready-file`, liveness por su latido). Probes de Actuator y `/q/health` (con `startupProbe`),
+  `requests` y `limits` en todo contenedor y `preStop` con espera breve. Dos Jobs idempotentes: `db-migrate` (Flyway de
+  core y audit con la misma configuración que transfer-service, risk, analytics y `grants.sql`, en el orden de
+  `db/README.md`, migraciones desde `configMapGenerator` sobre los archivos del repositorio, sin copias) y `bootstrap`
+  (tópicos con `deploy/kafka/create-topics.sh` y semillas: core con conciliación en 0, CLEARING exenta, países de riesgo
+  y la base de Metabase). Imágenes propias `:dev` con `kind load docker-image` e `imagePullPolicy: Never`. El Secret
+  `verabank-env` lo crea `make kind-deploy` desde `.env` por un descriptor (`--from-env-file=<(…)`), sin valores en la línea
+  de comandos ni en los manifiestos; `kind-deploy` aborta si Compose corre. `make kind-up`, `kind-deploy`, `kind-smoke`
+  (= `make smoke KIND=1`), `kind-chaos` (k6 a 20 TPS, borrado forzado de un pod de scoring, éxito, `FALLBACK` y tiempo a
+  Ready), `kind-down CONFIRM=yes` y `kind-check`. kind fijado en v0.31.0; flujo `kind.yml` solo por `workflow_dispatch`.
+  El simulador entra a la base del clúster con `VERABANK_KIND=1` (`kubectl exec`; la contraseña se lee del entorno del
+  pod, no viaja), lo que usa `kind-chaos` para `load-seed`.
+- Consecuencias: `make kind-check` (también en el job `contratos` de la CI) valida sin clúster límites, probes, réplicas,
+  roles, PDB, etiquetas, credenciales, migraciones completas y NodePort; siete mutaciones (imagen `latest`, sin `preStop`,
+  contraseña literal, scoring ×1, sin PDB, una migración ausente, Metabase con 6 GiB) fallan. Límites de memoria: 7,38 GiB
+  de larga vida más 0,50 GiB del mayor Job = 7,88 GiB (≤ 10 GiB, §1.2). **Sin corrida real todavía**: `kind` no está
+  instalado en el equipo y la corrida exige detener Compose; quedan pendientes `make kind-up && make kind-deploy &&
+  make kind-smoke && make kind-chaos`, `kubectl get pods` y la memoria real del nodo. Al añadir una migración hay que
+  listarla en `deploy/kind/base/kustomization.yaml` (la comprobación lo exige).
 
 ## Límites conocidos
 
@@ -256,6 +274,7 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 - **Verificador sin ancla externa (D5).**
 - **Desajuste de historia heredado en el reentrenamiento (D7, 4/D1).**
 - **Muestra sintética en la CI (D11).**
+- **kind sin corrida real (D12).** Manifiestos validados en estático; falta desplegarlos en un clúster.
 - **Filas sintéticas de k6 en `scoring_log` (D2).** Se excluyen por el prefijo `perf-` de `source_ref`; un generador
   nuevo que no lo use contaminaría PSI, razones y reentrenamiento.
 - **Transferencias con reloj real en la línea de tiempo simulada.** `make smoke`, `make demo-idempotency` y la carga T-17
