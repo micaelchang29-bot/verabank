@@ -102,6 +102,14 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   44,5 % de la ventana 577–600 (19.910 de 44.764), frente al 45,9 % (`train`) y el 43,1 % (`valid`). PSI de las top-5
   features ≤ 0,03 contra ambas referencias. PSI del score: 0,425 (577–600) y 0,371 (601–624) contra `train`; 0,018 y
   0,028 contra `valid`.
+- `make drift-demo CONFIRM=yes` con el calentamiento dirigido (base limpia, referencia `valid`): la base no alertó (0
+  filas en 577–624; PSI del score 0,018 y 0,028) y la deriva **tampoco** (código 2, STOP de D3). La ventana 625–648 sí
+  supera el umbral (score 0,379 y `log_amount` 0,653 contra `valid`), pero la regla de D2 pide dos ventanas contiguas y
+  la 649–672 es la última de la tanda: nunca está completa, así que no se calcula y no puede confirmar la alerta. Es el
+  efecto de completitud ya descrito en D2, no un fallo del job; resolverlo (una tanda de deriva de 72 pasos o una cola
+  corta que cierre la ventana) cambia la demo y queda a decisión del usuario. Contra `train` alerta el score en 601–624
+  y 625–648 (0,371 y 0,922). Hallazgo sin explicar: fuera del top-5, `dst_age_hours`, `dst_in_*` y `dst_distinct_src_24h`
+  dan PSI de 0,9 a 1,6 contra `train` y `hour_sin`/`hour_cos` de 0,2 a 2,2 contra ambas; no alertan por no ser top-5.
 - Consecuencias: el desajuste de historia deja de explicar el PSI. Contra `train` solo queda el **score** por encima de
   0,25 en dos ventanas seguidas, con las features estables: es la diferencia real de distribución del score entre el
   régimen de entrenamiento y el del replay (cambio cerca del paso 400). La base alertaría contra `train` por el score y
