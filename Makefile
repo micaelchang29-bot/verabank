@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures ml-psi-ref psi ml-reasons retrain retrain-check promote rollback drift-demo amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed smoke load-seed load-transfers reconcile-full pg-restart-test bi-init bi-up bi-check bi-url test-bi
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures ml-psi-ref psi ml-reasons retrain retrain-check promote rollback drift-demo amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed feature-parity smoke load-seed load-transfers reconcile-full pg-restart-test bi-init bi-up bi-check bi-url test-bi
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -175,6 +175,7 @@ replay: ## Replay de PaySim (partición de prueba): make replay N=20000 TPS=50 [
 # desde sim_epoch: las tandas empiezan en 577, 625, ... Directamente: scripts/sim.sh replay --steps 3 --first-step 577
 STEPS ?= 96
 BI_TPS ?= 100
+SAMPLE ?= 5000
 APPROVE ?= 0
 SETTLE_TIMEOUT ?= 15m
 CONFIRM ?=
@@ -191,6 +192,9 @@ bi-seed: ## Siembra para BI: replay de STEPS (96) pasos desde el 577 a BI_TPS (1
 	@scripts/ml-job.sh clock-guard $(if $(FORCE),--force)
 	@scripts/sim.sh replay --steps $(STEPS) --first-step 577 --tps $(BI_TPS)
 	@scripts/sim.sh settle --approve-reviews --timeout $(SETTLE_TIMEOUT)
+
+feature-parity: ## Compara las features del replay en risk.scoring_log con features_A.parquet por row_id (ADR-13) [SAMPLE=5000]
+	@scripts/sim.sh feature-parity --sample $(SAMPLE)
 
 # BI (fase 5, D9): Metabase en el perfil bi, base de aplicación propia y dashboard creado por API (bi/README.md).
 bi-init: ## Crea (idempotente) la base metabase y el rol metabase_app con METABASE_DB_PASSWORD de .env

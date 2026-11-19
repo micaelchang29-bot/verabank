@@ -22,6 +22,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "aml-eval": ("verabank_sim.aml.eval_cli", "evalúa las alertas AML contra la verdad de terreno de amlgen (D12)"),
     "load-seed": ("verabank_sim.load.loadseed", "cuentas de la prueba de carga T-17 (orígenes con saldo y destinos internos)"),
     "settle": ("verabank_sim.settle", "espera a que no queden transferencias abiertas; aprueba las revisiones si se pide"),
+    "feature-parity": ("verabank_sim.parity", "compara las features del replay en scoring_log con las de entrenamiento (ADR-13)"),
     "watch": ("verabank_sim.watch", "vigila el latido del simulador mientras chaos espera (lo usa make chaos-rail)"),
 }
 
