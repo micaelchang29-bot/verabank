@@ -40,6 +40,14 @@ public interface RiskConfig {
         /** Tiempo máximo por consulta a PostgreSQL. */
         @WithDefault("100ms")
         Duration queryTimeout();
+
+        /** Pasadas sintéticas completas (con inferencia) del calentamiento de arranque. */
+        @WithDefault("200")
+        int warmupRounds();
+
+        /** Tiempo máximo de todo el calentamiento; si se agota, la readiness sigue abajo y lo reintenta. */
+        @WithDefault("30s")
+        Duration warmupTimeout();
     }
 
     interface Stream {

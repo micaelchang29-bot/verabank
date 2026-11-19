@@ -68,6 +68,24 @@ class WarmUpIT {
     }
 
     @Test
+    void everyConnectionOfThePoolRunsTheScoringQueriesAndLeavesNoRows() throws SQLException {
+        int poolSize = org.eclipse.microprofile.config.ConfigProvider.getConfig()
+                .getValue("quarkus.datasource.\"scoring\".reactive.max-size", Integer.class);
+        long rowsBefore = rows();
+        int warmed = Arc.container().select(ScoringService.class).get().warmConnections(poolSize)
+                .await().atMost(Duration.ofSeconds(30));
+        assertThat(warmed).isEqualTo(poolSize);
+        // Cada backend del rol de ejecución terminó con el ROLLBACK de su INSERT: todas pasaron por la ruta, no solo una.
+        try (Connection c = PgInfra.admin(); Statement s = c.createStatement();
+                ResultSet rs = s.executeQuery("SELECT count(*) FROM pg_stat_activity WHERE usename = 'risk_svc' "
+                        + "AND datname = current_database() AND query = 'ROLLBACK'")) {
+            rs.next();
+            assertThat(rs.getLong(1)).isEqualTo(poolSize);
+        }
+        assertThat(rows()).isEqualTo(rowsBefore);
+    }
+
+    @Test
     void theServiceIsReadyOnlyAfterWarmingUp() {
         assertThat(Arc.container().select(ScoringStartup.class).get().isWarmed()).isTrue();
         given().get("/q/health/ready").then().statusCode(200);

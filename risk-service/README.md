@@ -31,6 +31,12 @@ qué falló, sin volcar contenido. Si el challenger no es válido, solo se desac
 40, 10 y 10 ms y 150 ms en total), `scoring.decisions{decision}`, `scoring.errors{type}`, `scoring.shadow.failures`.
 Hay una muestra de `log` por cada sentencia contra la bitácora: la lectura previa de idempotencia y la inserción.
 
+**Calentamiento de arranque.** Antes de declarar `ready`, el rol scoring (1) crea sus métricas, (2) retiene a la vez
+todas las conexiones del pool y en cada una ejecuta una consulta de cada tipo de la ruta (lectura de la bitácora,
+destino, origen y el INSERT en una transacción revertida) y (3) hace `VERABANK_WARMUP_ROUNDS` pasadas sintéticas
+completas. No escribe en `risk.scoring_log`. La readiness solo sube cuando terminó (`WarmUpPendingIT`); la primera
+solicitud real tras `ready` responde por debajo de los 120 ms de transfer-service (`FirstCallLatencyIT`).
+
 ## Rol stream
 
 `VERABANK_ROLE=stream`: no carga ONNX Runtime ni el modelo (D3) y su pool de PostgreSQL es propio (`stream`, rol `risk_svc`).
@@ -94,6 +100,8 @@ se fijan `closed_at` y `closed_by` (el canal).
 | `VERABANK_STREAM_POOL_SIZE` | `10` | conexiones del pool `stream` |
 | `VERABANK_SHADOW_ENABLED` | `false` | puntúa también el challenger |
 | `VERABANK_QUERY_TIMEOUT` | `100ms` | tiempo máximo por consulta |
+| `VERABANK_WARMUP_ROUNDS` | `200` | pasadas sintéticas completas (parser, features, inferencia, INSERT revertido, respuesta serializada) antes de la readiness del rol scoring |
+| `VERABANK_WARMUP_TIMEOUT` | `30s` | tiempo máximo de todo el calentamiento; si se agota, la readiness sigue abajo y lo reintenta |
 | `VERABANK_SCORING_POOL_SIZE` | `10` | conexiones del pool reactivo dedicado (`scoring`) |
 | `POSTGRES_HOST` `POSTGRES_PORT` `POSTGRES_DB` | `localhost` `5432` `verabank` | base de datos |
 | `VERABANK_DB_USER` `RISK_SVC_PASSWORD` | `risk_svc` y vacío | rol de ejecución (db/README.md) |

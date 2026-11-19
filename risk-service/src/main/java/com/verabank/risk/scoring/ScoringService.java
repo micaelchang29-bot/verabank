@@ -120,9 +120,29 @@ class ScoringService {
         return chain;
     }
 
-    private Uni<Void> warmRound(ModelState.Champion champion) {
+    /** Calienta cada conexión del pool con la ruta de scoring (lecturas y un INSERT revertido) sin inferencia. */
+    Uni<Integer> warmConnections(int connections) {
+        ModelState state = registry.state();
+        if (!state.loaded()) {
+            return Uni.createFrom().failure(new IllegalStateException("el modelo no está cargado"));
+        }
+        ModelState.Champion champion = state.champion();
         ScoreInput in = new ScoreInput(UUID.randomUUID(), "warmup-source", "warmup-dest", new BigDecimal("100.00"), "PEN",
                 "TRANSFER", "PE", java.time.Instant.parse("2026-01-01T12:00:00Z"));
+        Map<String, Double> features = new java.util.LinkedHashMap<>();
+        FeatureComputer.FEATURE_NAMES.forEach(name -> features.put(name, 0.0));
+        return log.warmConnections(connections, in, Windows.of(in.occurredAt()), features, champion.policy().evaluate(0.0),
+                champion.modelVersion());
+    }
+
+    private static final String WARMUP_BODY = """
+            {"transfer_id":"%s","source_ref":"warmup-source","dest_ref":"warmup-dest","amount":"100.00","currency":"PEN",
+             "transfer_type":"TRANSFER","dest_country":"PE","occurred_at":"2026-01-01T12:00:00Z"}""";
+
+    /** Una pasada de la ruta real menos la escritura: cuerpo JSON por el parser, features, inferencia, INSERT revertido y
+     *  la respuesta serializada con el mismo ObjectMapper que la capa REST. */
+    private Uni<Void> warmRound(ModelState.Champion champion) {
+        ScoreInput in = parser.parse(WARMUP_BODY.formatted(UUID.randomUUID()));
         Windows windows = Windows.of(in.occurredAt());
         return log.find(in.transferId())
                 .flatMap(existing -> Uni.combine().all().unis(queries.destination(in, windows), queries.source(in, windows))
@@ -131,9 +151,18 @@ class ScoringService {
                     float[] row = FeatureComputer.row(f, champion.featureOrder());
                     return infer(champion.model(), row).flatMap(probability -> {
                         DecisionPolicy.Scored scored = champion.policy().evaluate(probability);
-                        return log.insertAndRollBack(in, f, scored, champion.modelVersion());
+                        return log.insertAndRollBack(in, f, scored, champion.modelVersion()).invoke(() -> serialize(
+                                new ScoreResponse(scored.score(), scored.decision(), champion.modelVersion())));
                     });
                 });
+    }
+
+    private void serialize(ScoreResponse response) {
+        try {
+            objectMapper.writeValueAsBytes(response);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException("no se pudo serializar la respuesta del calentamiento", e);
+        }
     }
 
     /** ONNX Runtime es bloqueante: va al pool de workers y la continuación vuelve al contexto de Vert.x. */

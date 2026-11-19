@@ -8,6 +8,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.mutiny.pgclient.PgPool;
 import io.vertx.mutiny.sqlclient.Row;
 import io.vertx.mutiny.sqlclient.RowSet;
+import io.vertx.mutiny.sqlclient.SqlConnection;
 import io.vertx.mutiny.sqlclient.Tuple;
 import io.vertx.sqlclient.data.Numeric;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -69,14 +70,55 @@ class ScoreLog {
      */
     Uni<Void> insertAndRollBack(ScoreInput in, Map<String, Double> features, DecisionPolicy.Scored scored,
             String modelVersion) {
-        Tuple params = Tuple.tuple()
+        Tuple params = insertParams(in, features, scored, modelVersion);
+        return pool.withTransaction(connection -> connection.preparedQuery(INSERT).execute(params)
+                        .flatMap(rows -> Uni.createFrom().<Void>failure(new RollBack())))
+                .onFailure(RollBack.class).recoverWithNull();
+    }
+
+    /**
+     * Calienta TODAS las conexiones del pool: las retiene a la vez (así son {@code connections} distintas) y en cada
+     * una ejecuta una consulta de cada tipo de la ruta de scoring (lectura de la bitácora, destino, origen) y el INSERT
+     * dentro de una transacción que se revierte. Cada backend de PostgreSQL carga sus cachés de catálogo y planes; sin
+     * esto, la primera solicitud real que cae en una conexión nueva los paga. No deja filas en la bitácora.
+     */
+    Uni<Integer> warmConnections(int connections, ScoreInput in, FeatureComputer.Windows w, Map<String, Double> features,
+            DecisionPolicy.Scored scored, String modelVersion) {
+        List<Uni<SqlConnection>> acquire = new ArrayList<>();
+        for (int i = 0; i < connections; i++) {
+            acquire.add(pool.getConnection());
+        }
+        Tuple insert = insertParams(in, features, scored, modelVersion);
+        return Uni.join().all(acquire).andFailFast().flatMap(held -> {
+            List<Uni<Void>> runs = new ArrayList<>();
+            for (SqlConnection c : held) {
+                runs.add(exercise(c, in, w, insert).eventually(c::close));
+            }
+            return Uni.join().all(runs).andFailFast().map(done -> held.size());
+        });
+    }
+
+    private static Uni<Void> exercise(SqlConnection c, ScoreInput in, FeatureComputer.Windows w, Tuple insert) {
+        return c.preparedQuery(FIND).execute(Tuple.of(in.transferId()))
+                .flatMap(r -> c.preparedQuery(FeatureQueries.DESTINATION_SQL)
+                        .execute(Tuple.of(in.destRef(), utc(w.from24h()), utc(w.to()), in.sourceRef())))
+                .flatMap(r -> c.preparedQuery(FeatureQueries.SOURCE_SQL)
+                        .execute(Tuple.of(in.sourceRef(), utc(w.from24h()), utc(w.to()), utc(w.from1h()))))
+                .flatMap(r -> c.begin())
+                .flatMap(tx -> c.preparedQuery(INSERT).execute(insert).flatMap(r -> tx.rollback()));
+    }
+
+    private static Tuple insertParams(ScoreInput in, Map<String, Double> features, DecisionPolicy.Scored scored,
+            String modelVersion) {
+        return Tuple.tuple()
                 .addValue(in.transferId()).addValue(in.sourceRef()).addValue(in.destRef())
                 .addValue(Numeric.create(in.amount())).addValue(in.occurredAt().atOffset(ZoneOffset.UTC))
                 .addValue(new JsonObject(Map.copyOf(features))).addValue(Numeric.create(scored.score()))
                 .addValue(scored.decision().name()).addValue(modelVersion);
-        return pool.withTransaction(connection -> connection.preparedQuery(INSERT).execute(params)
-                        .flatMap(rows -> Uni.createFrom().<Void>failure(new RollBack())))
-                .onFailure(RollBack.class).recoverWithNull();
+    }
+
+    private static java.time.OffsetDateTime utc(java.time.Instant instant) {
+        return instant.atOffset(ZoneOffset.UTC);
     }
 
     private static final class RollBack extends RuntimeException {
@@ -92,14 +134,6 @@ class ScoreLog {
     }
 
     /** Abre {@code connections} conexiones a la vez para que la primera solicitud no pague el alta de la conexión. */
-    Uni<Void> warmUp(int connections) {
-        List<Uni<Void>> pings = new ArrayList<>();
-        for (int i = 0; i < connections; i++) {
-            pings.add(pool.query("SELECT 1").execute().replaceWithVoid());
-        }
-        return Uni.join().all(pings).andFailFast().replaceWithVoid();
-    }
-
     Uni<Void> ping() {
         return pool.query("SELECT 1").execute().replaceWithVoid();
     }

@@ -39,6 +39,11 @@ class ScoringMetrics {
         shadowFailure(0);
     }
 
+    /** Fuerza la creación del bean (y así su {@link #register()}) antes de la primera solicitud real. */
+    void ensureRegistered() {
+        // El cuerpo vacío basta: llamar a un método del proxy de ApplicationScoped instancia el bean.
+    }
+
     private Timer timer(String stage) {
         return timers.computeIfAbsent(stage, s -> Timer.builder("scoring.stage.duration")
                 .description("Duración por etapa del scoring")
