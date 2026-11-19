@@ -274,7 +274,7 @@ del repositorio mantiene su propia licencia.
 ```bash
 make ml-psi-ref                  # psi_reference.json (train) y psi_reference_valid.json (valid); hashes en manifest.json
 make psi [ARGS=--reference valid --recompute]   # ventanas completas pendientes → analytics.drift_metrics (rol ml_job)
-make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–672 con montos × 3, referencia valid
+make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–696 (72 pasos) con montos × 3, referencia valid
 ```
 
 - **Referencia** (`monitor/reference.py`): solo la partición `train` (pasos 1–400) de `features_A.parquet`; solo
@@ -299,7 +299,7 @@ make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–672
   último bit de `hour_sin`/`hour_cos`). El mismo código sirve para la referencia y para cada ventana.
 - **Ventanas** (`monitor/psi.py`): la `k` cubre los pasos `[24k+1, 24k+24]` (la 24 es 577–600). Filas de
   `risk.scoring_log` sin `warmup`. Completa si hay filas con `occurred_at >= window_end` (la última ventana con datos
-  nunca lo está). Menos de 200 filas ⇒ `insufficient`. `alert` solo para `score` y las `top_features`, con PSI > 0,25
+  nunca lo está). Menos de 200 filas ⇒ `insufficient`. `alert` solo con `valid`, para `score` y las `top_features`, con PSI > 0,25
   en la ventana y en la anterior contigua (de la misma referencia). Upsert por `(window_start, feature, reference)`;
   `--fail-on-alert` sale con 2.
 - **Guarda del reloj** (`clock_guard.py`, `make` → `scripts/ml-job.sh clock-guard`): `bi-seed`, `drift-demo` y `retrain`
