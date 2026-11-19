@@ -1,9 +1,9 @@
 -- EXTRA A: drift activo (alertas de PSI de las dos últimas ventanas, por PSI)
-SELECT d.window_start, d.window_end, d.feature, d.psi, d.n_current, d.model_version, d.reference
+SELECT d.window_start, d.window_end, d.feature, d.psi, d.n_current, d.model_version
 FROM analytics.drift_metrics d
-WHERE d.alert
-  AND d.window_start >= (SELECT max(window_start) FROM analytics.drift_metrics WHERE reference = d.reference) - interval '24 hours'
-ORDER BY d.psi DESC, d.feature, d.reference;
+WHERE d.alert AND d.reference = 'valid'
+  AND d.window_start >= (SELECT max(window_start) FROM analytics.drift_metrics WHERE reference = 'valid') - interval '24 hours'
+ORDER BY d.psi DESC, d.feature;
 
 -- EXTRA B: cola de revisión con razones (REVIEW abiertas y BLOCK del último día, con sus tres razones)
 SELECT o.transfer_id, o.occurred_at, o.segment, o.amount, o.fraud_decision, o.status, o.model_version,

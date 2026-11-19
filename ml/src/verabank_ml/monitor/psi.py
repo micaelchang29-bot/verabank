@@ -6,8 +6,11 @@
 - Menos de 200 filas: ``insufficient``, sin alerta. Feature degenerada: PSI 0.
 - ``alert`` solo para ``score`` y las ``top_features`` de la referencia, con PSI > 0,25 en la ventana **y** en la
   anterior contigua (leída de la tabla o calculada en esta misma corrida). Las demás se registran sin alerta.
-- ``--reference train|valid`` (por defecto ``train``, §5f) elige la referencia; cada fila de ``drift_metrics`` lleva la suya y
-  la alerta de dos ventanas contiguas solo mira filas de la misma referencia. Umbral, ventanas y top-5 no cambian.
+- ``--reference valid|train`` (por defecto ``valid``) elige la referencia; cada fila de ``drift_metrics`` lleva la suya.
+  **Solo ``valid`` genera ``alert``** (desviación consciente de §5f, ADR-13: los umbrales de decisión se fijaron en
+  validación y contra ``train`` el score diverge sin deriva); ``train`` se calcula y se muestra como medida informativa
+  del cambio de régimen, siempre con ``alert = false``. La alerta de dos ventanas contiguas solo mira filas de la misma
+  referencia. Umbral, ventanas y top-5 no cambian.
 - Calcula las ventanas completas pendientes (``--recompute``: todas) y escribe con upsert. Rol ``ml_job``.
 """
 
@@ -29,6 +32,7 @@ from verabank_ml.monitor.reference import REFERENCE_PATHS
 WINDOW_STEPS = 24
 MIN_ROWS = 200
 ALERT_PSI = 0.25
+ALERT_REFERENCE = "valid"          # la única referencia que genera alert; las demás son informativas
 SCORE = "score"
 WINDOW = timedelta(hours=WINDOW_STEPS)
 
@@ -46,7 +50,7 @@ class Metric:
     is_top_feature: bool
     alert: bool
     model_version: str
-    reference: str = "train"
+    reference: str
 
 
 def parse_epoch(text: str) -> datetime:
@@ -82,7 +86,7 @@ def compute_window(reference: dict, start: datetime, end: datetime, scores: Sequ
         bins = binning.Bins.from_json(spec)
         value = 0.0 if bins.degenerate or n == 0 else binning.psi(spec["expected"], binning.proportions(bins, values))
         out.append(Metric(start, end, name, value, n, bins.n_bins, bins.degenerate, n < MIN_ROWS,
-                          name in top, False, model_version, reference.get("partition", "train")))
+                          name in top, False, model_version, reference["partition"]))
     return out
 
 
@@ -92,8 +96,8 @@ def over(m: Metric | None) -> bool:
 
 def apply_alerts(current: list[Metric], previous: dict[str, Metric]) -> list[Metric]:
     """``previous``: las métricas de la ventana anterior contigua, por feature (vacío si no existe)."""
-    return [Metric(**{**m.__dict__, "alert": m.is_top_feature and over(m) and over(previous.get(m.feature))})
-            for m in current]
+    return [Metric(**{**m.__dict__, "alert": m.reference == ALERT_REFERENCE and m.is_top_feature and over(m)
+                      and over(previous.get(m.feature))}) for m in current]
 
 
 def evaluate(reference: dict, epoch: datetime, windows: Iterable[tuple[int, list[float], list[dict], str]],
@@ -156,7 +160,7 @@ def load_window(conn, epoch: datetime, k: int) -> tuple[list[float], list[dict],
     return [float(r[0]) for r in rows], [r[1] for r in rows], version
 
 
-def stored_metrics(conn, epoch: datetime, reference: str = "train") -> dict[int, dict[str, Metric]]:
+def stored_metrics(conn, epoch: datetime, reference: str) -> dict[int, dict[str, Metric]]:
     """Las métricas ya guardadas de esa referencia: la alerta nunca mezcla ventanas de referencias distintas."""
     out: dict[int, dict[str, Metric]] = {}
     for row in conn.execute(
@@ -177,7 +181,7 @@ def write(conn, metrics: Iterable[Metric]) -> int:
 
 
 def run(conn, reference: dict, epoch: datetime, recompute: bool = False) -> dict[int, list[Metric]]:
-    stored = stored_metrics(conn, epoch, reference.get("partition", "train"))
+    stored = stored_metrics(conn, epoch, reference["partition"])
     pending = [k for k in complete_windows(conn, epoch) if recompute or k not in stored]
     windows = [(k, *load_window(conn, epoch, k)) for k in pending]
     done = evaluate(reference, epoch, windows, stored)
@@ -204,8 +208,8 @@ def summary_table(done: dict[int, list[Metric]], reference: dict) -> str:
 
 def psi_command(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="python -m verabank_ml psi", description=__doc__.split("\n")[0])
-    parser.add_argument("--reference", choices=sorted(REFERENCE_PATHS), default="train",
-                        help="referencia del PSI: train (§5f, por defecto) o valid (pasos 425–550)")
+    parser.add_argument("--reference", choices=sorted(REFERENCE_PATHS), default=ALERT_REFERENCE,
+                        help="referencia del PSI: valid (pasos 425–550, genera alertas; por defecto) o train (informativa)")
     parser.add_argument("--recompute", action="store_true", help="recalcula todas las ventanas completas")
     parser.add_argument("--fail-on-alert", action="store_true", help="sale con 2 si alguna ventana calculada alerta")
     args = parser.parse_args(argv)

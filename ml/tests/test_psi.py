@@ -66,7 +66,8 @@ def test_quantile_edges_by_hand():
 def test_constant_feature_is_degenerate_and_scores_zero():
     bins = binning.fit_bins([3.0] * 50)
     assert bins.degenerate
-    ref = {"top_features": [], "features": {"c": {**bins.to_json(), "expected": list(binning.proportions(bins, [3.0] * 50))}},
+    ref = {"partition": "valid", "top_features": [],
+           "features": {"c": {**bins.to_json(), "expected": list(binning.proportions(bins, [3.0] * 50))}},
            "score": quantile_spec(np.linspace(0, 1, 100))}
     metrics = psi.compute_window(ref, EPOCH, EPOCH + psi.WINDOW, [0.5] * 300, [{"c": 9.0}] * 300, "m/1")
     c = next(m for m in metrics if m.feature == "c")
@@ -108,8 +109,8 @@ def quantile_spec(values) -> dict:
 def ref():
     rng = np.random.default_rng(7)
     train = {"a": rng.normal(0, 1, 5000), "b": rng.normal(0, 1, 5000), "kind": rng.integers(0, 3, 5000).astype(float)}
-    return {"top_features": ["a", "kind"], "features": {k: quantile_spec(v) for k, v in train.items()},
-            "score": quantile_spec(rng.beta(1, 20, 5000))}
+    return {"partition": "valid", "top_features": ["a", "kind"],
+            "features": {k: quantile_spec(v) for k, v in train.items()}, "score": quantile_spec(rng.beta(1, 20, 5000))}
 
 
 def window(ref, k: int, shift: float, n: int = 400, seed: int = 0):
@@ -275,7 +276,8 @@ def shifted_ref():
     """Una referencia calibrada sobre datos desplazados 3 (el estado de a, b y score de ``window(..., 3)``)."""
     rng = np.random.default_rng(8)
     train = {"a": rng.normal(3, 1, 5000), "b": rng.normal(3, 1, 5000), "kind": rng.integers(0, 3, 5000).astype(float)}
-    return {"top_features": ["a", "kind"], "features": {k: quantile_spec(v) for k, v in train.items()},
+    return {"partition": "valid", "top_features": ["a", "kind"],
+            "features": {k: quantile_spec(v) for k, v in train.items()},
             "score": quantile_spec(np.clip(rng.beta(1, 20, 5000) + 0.75, 0, 1))}
 
 
@@ -285,47 +287,61 @@ def reference_rows(pg):
                             "GROUP BY 1 ORDER BY 1").fetchall()
 
 
-def test_rows_of_both_references_live_together(pg, ref, shifted_ref):
+def test_rows_of_both_references_live_together_but_only_valid_alerts(pg, ref, shifted_ref):
     pg.reset()
     insert_rows(pg, rows_for(ref, 24, 3, seed=5) + rows_for(ref, 25, 3, seed=6) + rows_for(ref, 26, 0, n=5))
-    train = {**ref, "partition": "train"}
-    valid = {**shifted_ref, "partition": "valid"}
+    train = {**ref, "partition": "train"}                # PSI alto en las dos ventanas contiguas: no alerta
+    valid = {**ref, "partition": "valid"}                # los mismos datos y la misma referencia: sí alerta
     with pg.connect() as conn:
         done_train = psi.run(conn, train, EPOCH)
         done_valid = psi.run(conn, valid, EPOCH)
         assert psi.run(conn, train, EPOCH) == {} and psi.run(conn, valid, EPOCH) == {}   # cada una tiene sus ventanas
     n = len(ref["features"]) + 1
-    assert reference_rows(pg) == [("train", 2 * n, 2), ("valid", 2 * n, 0)]
+    assert reference_rows(pg) == [("train", 2 * n, 0), ("valid", 2 * n, 2)]
     assert {m.reference for ms in done_train.values() for m in ms} == {"train"}
     assert {m.reference for ms in done_valid.values() for m in ms} == {"valid"}
-    assert alerts(done_train) == {(25, "a"), (25, "score")} and alerts(done_valid) == set()
+    by_train = {(m.feature, k): m for k, ms in done_train.items() for m in ms}
+    assert by_train[("a", 24)].psi > 0.25 and by_train[("a", 25)].psi > 0.25 and by_train[("score", 25)].psi > 0.25
+    assert alerts(done_train) == set() and alerts(done_valid) == {(25, "a"), (25, "score")}
     with pg.connect() as conn:
-        # La misma ventana y feature con dos referencias son filas distintas con PSI distinto.
-        rows = conn.execute("SELECT reference, psi FROM analytics.drift_metrics WHERE feature = 'a' AND window_start = %s "
-                            "ORDER BY 1", (psi.window_bounds(EPOCH, 24)[0],)).fetchall()
-    assert rows[0][0] == "train" and rows[1][0] == "valid" and float(rows[0][1]) > 0.25 > float(rows[1][1])
+        rows = conn.execute("SELECT reference, psi, alert FROM analytics.drift_metrics WHERE feature = 'a' AND window_start = %s "
+                            "ORDER BY 1", (psi.window_bounds(EPOCH, 25)[0],)).fetchall()
+    assert [(r[0], r[2]) for r in rows] == [("train", False), ("valid", True)] and float(rows[0][1]) == float(rows[1][1])
 
 
-@pytest.mark.parametrize("hi_name, lo_name", [("train", "valid"), ("valid", "train")])
-def test_the_alert_reads_the_previous_window_of_the_same_reference_only(pg, ref, shifted_ref, hi_name, lo_name):
-    """Con ``hi`` la ventana 24 ya estaba alta; con ``lo`` (calibrada sobre esos datos) no: ``lo`` no puede alertar en la 25."""
+def test_a_train_row_with_high_psi_never_alerts_and_a_valid_row_does(pg, ref):
     pg.reset()
-    hi, lo = {**ref, "partition": hi_name}, {**shifted_ref, "partition": lo_name}
+    insert_rows(pg, rows_for(ref, 24, 3, seed=5) + rows_for(ref, 25, 3, seed=6) + rows_for(ref, 26, 0, n=5))
+    for name in ("train", "valid"):
+        with pg.connect() as conn:
+            psi.run(conn, {**ref, "partition": name}, EPOCH)
+    with pg.connect("admin") as conn:
+        alerting = conn.execute("SELECT DISTINCT reference FROM analytics.drift_metrics WHERE alert").fetchall()
+        high = conn.execute("SELECT reference, count(*) FROM analytics.drift_metrics WHERE psi > 0.25 GROUP BY 1 ORDER BY 1").fetchall()
+    assert alerting == [("valid",)] and [h[0] for h in high] == ["train", "valid"] and high[0][1] == high[1][1]
+
+
+@pytest.mark.parametrize("valid_prev_high", [True, False])
+def test_the_alert_reads_the_previous_window_of_the_same_reference_only(pg, ref, shifted_ref, valid_prev_high):
+    """``valid`` alerta en la 25 solo si su propia ventana 24 era alta, aunque la ``train`` guardada sí lo fuera (o no)."""
+    pg.reset()
+    valid_ref, train_ref = (ref, shifted_ref) if valid_prev_high else (shifted_ref, ref)
+    valid, train = {**valid_ref, "partition": "valid"}, {**train_ref, "partition": "train"}
     insert_rows(pg, rows_for(ref, 24, 3, seed=5) + rows_for(ref, 25, 0, n=5))
     with pg.connect() as conn:
-        psi.run(conn, lo, EPOCH)                      # lo primero, hi después: las filas de hi son las últimas de la tabla
-        psi.run(conn, hi, EPOCH)
+        psi.run(conn, valid, EPOCH)                   # valid primero, train después: las filas de train son las últimas
+        psi.run(conn, train, EPOCH)
     insert_rows(pg, rows_for(ref, 25, 6, seed=7) + rows_for(ref, 26, 0, n=5))
     with pg.connect() as conn:
-        done_lo = psi.run(conn, lo, EPOCH)
-        done_hi = psi.run(conn, hi, EPOCH)
-    assert {m.feature: m.psi for m in done_lo[25]}["a"] > 0.25            # alta en la 25, pero la anterior de lo era baja
-    assert alerts(done_lo) == set()
-    assert alerts(done_hi) == {(25, "a"), (25, "score")}
-    assert reference_rows(pg)[0][0] == "train" and {r[0]: r[2] for r in reference_rows(pg)}[lo_name] == 0
+        done_valid = psi.run(conn, valid, EPOCH)
+        done_train = psi.run(conn, train, EPOCH)
+    assert {m.feature: m.psi for m in done_valid[25]}["a"] > 0.25         # alta en la 25 en ambos casos
+    assert alerts(done_train) == set()
+    assert alerts(done_valid) == ({(25, "a"), (25, "score")} if valid_prev_high else set())
+    assert {r[0]: r[2] for r in reference_rows(pg)}["train"] == 0
 
 
-def test_psi_command_writes_the_chosen_reference(pg, ref, shifted_ref, tmp_path, monkeypatch, capsys):
+def test_psi_command_defaults_to_valid_and_writes_the_chosen_reference(pg, ref, shifted_ref, tmp_path, monkeypatch, capsys):
     pg.reset()
     paths = {"train": tmp_path / "t.json", "valid": tmp_path / "v.json"}
     paths["train"].write_text(json.dumps({**ref, "partition": "train"}))
@@ -333,16 +349,16 @@ def test_psi_command_writes_the_chosen_reference(pg, ref, shifted_ref, tmp_path,
     insert_rows(pg, rows_for(ref, 24, 3) + rows_for(ref, 25, 0, n=5))
     monkeypatch.setattr(psi, "REFERENCE_PATHS", paths)
     monkeypatch.setenv("VERABANK_ML_DSN", pg.dsn())
-    assert psi.psi_command([]) == 0                                    # por defecto: train
-    assert [r[0] for r in reference_rows(pg)] == ["train"]
-    assert psi.psi_command(["--reference", "valid"]) == 0
+    assert psi.psi_command([]) == 0                                    # por defecto: valid
+    assert [r[0] for r in reference_rows(pg)] == ["valid"]
+    assert psi.psi_command(["--reference", "train"]) == 0
     assert [r[0] for r in reference_rows(pg)] == ["train", "valid"]
-    assert "referencia: valid (v.json)" in capsys.readouterr().out
+    assert "referencia: train (t.json)" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         psi.psi_command(["--reference", "test"])
-    paths["valid"].unlink()
-    with pytest.raises(SystemExit, match="falta v.json"):
-        psi.psi_command(["--reference", "valid"])
+    paths["train"].unlink()
+    with pytest.raises(SystemExit, match="falta t.json"):
+        psi.psi_command(["--reference", "train"])
 
 
 def test_ml_job_cannot_read_core(pg):

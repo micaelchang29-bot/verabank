@@ -344,8 +344,9 @@ WHERE s.model_version <> 'warmup' AND s.source_ref NOT LIKE 'perf-%'
 """
 MAX_REAL = "SELECT max(occurred_at) FROM risk.scoring_log WHERE model_version <> 'warmup' AND source_ref NOT LIKE 'perf-%'"
 LATEST_ALERTS = """
-SELECT DISTINCT feature FROM analytics.drift_metrics d
-WHERE alert AND window_start = (SELECT max(window_start) FROM analytics.drift_metrics WHERE reference = d.reference)
+SELECT feature FROM analytics.drift_metrics
+WHERE alert AND reference = 'valid'
+  AND window_start = (SELECT max(window_start) FROM analytics.drift_metrics WHERE reference = 'valid')
 ORDER BY feature
 """
 
