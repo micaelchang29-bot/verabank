@@ -150,6 +150,30 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   ≤ 0,04) y solo se mueven `dst_age_hours` (mediana 0,43) y el perfil horario (mediana 1,06). Ninguna está en el top-5,
   así que no alertan, y no se cambia ninguna feature ni referencia.
 
+### D15 · Corrida de la demo con referencia `valid` y ritmo de la demo
+
+- Contexto: primera corrida de `make drift-demo CONFIRM=yes` con D13 y D14 (base limpia, 2026-11-18/19). La tanda base
+  (55.359 filas a 100 TPS) cerró su settle en 623 s; la de deriva (59.775 filas, montos × 3) dejó unas 33.000
+  transferencias en `PROCESSING` y el settle de 15 min venció (código 2, sin veredicto). Se terminó la misma corrida sin
+  reset: settle sin plazo corto y, a mano y en el orden del script, `psi --reference valid`, `psi --reference train` y
+  `drift-verdict`, sin cambiar código ni parámetros.
+- Resultado (PSI por ventana; filas de la ventana):
+
+  | Ventana | Filas | score `valid` | log_amount `valid` | score `train` | log_amount `train` | Alerta (`valid`) |
+  |---|---|---|---|---|---|---|
+  | 577–600 | 44.764 | 0,0182 | 0,0107 | 0,4246 | 0,0211 | no |
+  | 601–624 | 10.595 | 0,0278 | 0,0140 | 0,3711 | 0,0367 | no |
+  | 625–648 | 6.483 | 0,3787 | 0,6526 | 0,9216 | 0,6063 | no (primera alta) |
+  | 649–672 | 11.084 | 0,4962 | 0,5256 | 0,7889 | 0,5013 | **score, log_amount** |
+
+  El resto del top-5 (`type_*`, `dst_seen_before`) ≤ 0,03 en todas. `drift-verdict`: base 0 alertas, deriva 2;
+  **código 0**. Contra `train` no hay `alert` (informativa, D14).
+- Decisión: `DEMO_TPS` baja a 25 por defecto y el settle de la demo tiene su propio plazo, `SETTLE_TIMEOUT` (45 min por
+  defecto; si se pasa explícitamente, gana ese valor). El `make settle` normal y `bi-seed` siguen en 15 min.
+- Consecuencias: la demo dura más, pero no depende de que el rail drene 30.000 sagas en 15 min. El cuello del rail
+  (`rail.replies.v1`, ~29 sagas/s con PostgreSQL al 88 % de CPU) **sigue pendiente de diagnóstico (5.G.2)**: el ritmo
+  menor lo esquiva, no lo resuelve.
+
 ### D4 · `drift-demo` y `reset-data`
 
 - Contexto: la demo necesita una base sin datos anteriores y no hay forma de borrarlos sin perder todo.
@@ -278,6 +302,8 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 - **Verificador sin ancla externa (D5).**
 - **Desajuste de historia heredado en el reentrenamiento (D7, 4/D1).**
 - **Muestra sintética en la CI (D11).**
+- **Cuello del rail (D15, 5.G.2).** A 100 TPS todo EXTERNAL `rail.replies.v1` acumula retraso; pendiente de
+  diagnóstico. La demo usa 25 TPS y 45 min de settle para no depender de él.
 - **kind sin corrida real (D12).** Manifiestos validados en estático; falta desplegarlos en un clúster.
 - **Filas sintéticas de k6 en `scoring_log` (D2).** Se excluyen por el prefijo `perf-` de `source_ref`; un generador
   nuevo que no lo use contaminaría PSI, razones y reentrenamiento.

@@ -274,7 +274,7 @@ del repositorio mantiene su propia licencia.
 ```bash
 make ml-psi-ref                  # psi_reference.json (train) y psi_reference_valid.json (valid); hashes en manifest.json
 make psi [ARGS=--reference valid --recompute]   # ventanas completas pendientes → analytics.drift_metrics (rol ml_job)
-make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–696 (72 pasos) con montos × 3, referencia valid
+make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–696 (72 pasos) × 3, referencia valid [DEMO_TPS=25] [SETTLE_TIMEOUT=45m]
 ```
 
 - **Referencia** (`monitor/reference.py`): solo la partición `train` (pasos 1–400) de `features_A.parquet`; solo
@@ -302,6 +302,10 @@ make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–696
   nunca lo está). Menos de 200 filas ⇒ `insufficient`. `alert` solo con `valid`, para `score` y las `top_features`, con PSI > 0,25
   en la ventana y en la anterior contigua (de la misma referencia). Upsert por `(window_start, feature, reference)`;
   `--fail-on-alert` sale con 2.
+- **Ritmo y plazo de la demo.** `DEMO_TPS` (25 por defecto) y `SETTLE_TIMEOUT` (45 min por defecto para la demo; el
+  `make settle` normal sigue en 15 min). A 100 TPS todo EXTERNAL el rail acumula retraso en `rail.replies.v1` y el
+  settle de la tanda de deriva no cerraba en 15 min; el cuello del rail sigue **pendiente de diagnóstico (5.G.2)**: bajar
+  el ritmo lo esquiva, no lo resuelve.
 - **Guarda del reloj** (`clock_guard.py`, `make` → `scripts/ml-job.sh clock-guard`): `bi-seed`, `drift-demo` y `retrain`
   (también `retrain-check`) abortan si `risk.scoring_log` tiene transferencias con `occurred_at` fuera de `sim_epoch` a
   `sim_epoch` + 744 h (sin contar las sintéticas `perf-` de k6). **`make smoke`, `make demo-idempotency` y
