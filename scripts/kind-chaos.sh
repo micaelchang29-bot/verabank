@@ -44,17 +44,22 @@ while (( SECONDS - killed_at < 300 )); do
   if [[ -n "$replacement" ]]; then ready_s=$((SECONDS - killed_at)); break; fi
   sleep 1
 done
+echo "reemplazo de ${victim} Ready en: ${ready_s:-no quedó Ready en 300} s"
+set +e
 wait "$k6"; k6_status=$?
 ended="$(date -u +%FT%T.%3NZ)"
 
+# Resumen propio de perf/transfers.js (handleSummary): counts por resultado y latencia de la fase medida.
 python3 - "$OUT/transfers-summary.json" <<'PY'
 import json, sys
-m = json.load(open(sys.argv[1]))["metrics"]
-count = lambda k: int(m.get(k, {}).get("values", {}).get("count", 0))
-ok = count("res_201") + count("res_200_replayed") + sum(count(k) for k in ("res_422_transfer_declined", "res_422_insufficient_funds"))
-bad = count("res_other") + count("res_422_other") + count("res_200_not_replayed")
+d = json.load(open(sys.argv[1]))
+c = d["counts"]
+ok = c["201"] + c["200_replayed"] + c["422_transfer_declined"] + c["422_insufficient_funds"]
+bad = c["other"] + c["422_other"] + c["200_not_replayed"]
 total = ok + bad
-print(f"k6: {total} respuestas; éxito (200, 201, 422) {100 * ok / total:.2f} %" if total else "k6: sin respuestas")
+lat = d.get("load_latency_ms", {})
+print(f"k6: {total} respuestas; éxito (200, 201, 422) {100 * ok / total:.2f} %; fuera de esos códigos {bad}; "
+      f"p95 {lat.get('p(95)', 0):.1f} ms, p99 {lat.get('p(99)', 0):.1f} ms" if total else "k6: sin respuestas")
 PY
 fallback="$(sql <<SQL
 SELECT count(*) FILTER (WHERE decision_source = 'FALLBACK') || ' de ' || count(*)
@@ -62,5 +67,4 @@ FROM core.transfers WHERE client_id = 'loadtest' AND created_at >= '${started}' 
 SQL
 )"
 echo "FALLBACK en la ventana: ${fallback}"
-echo "reemplazo de ${victim} Ready en: ${ready_s:-no quedó Ready en 300} s"
 echo "k6 terminó con ${k6_status}; salida en ${OUT}"

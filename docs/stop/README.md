@@ -31,3 +31,4 @@ campos de abajo en este orden, para que otro agente los procese. Las cifras son 
 | 20261119-0334-reinicio-wsl | 2 | resuelto | entorno | dos pantallazos azules (0x139, 0x119 del driver AMD) a mitad de E1; recuperación sin descuadres y E1 repetido |
 | 20261119-0450-compensacion-sin-medir | 3 | resuelto parcialmente | prueba | reconcile-full no medía la compensación; medida: 77,8 % < 60 s bajo el pico (objetivo 99 %) |
 | 20261119-0557-kind-service-links | 5 | resuelto | configuración | POSTGRES_PORT=tcp://… inyectado por el Service rompía la URL JDBC; enableServiceLinks: false |
+| 20261119-0604-kind-chaos-resumen | 5 | resuelto | código (script) | kind-chaos leía el formato estándar de k6 y no el resumen propio de transfers.js |
