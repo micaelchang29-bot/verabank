@@ -286,11 +286,13 @@ make drift-demo CONFIRM=yes      # DESTRUCTIVO: base 577–624, deriva 625–672
   `model_sha256`, y `tests/test_psi.py` lo exige.
 - **Segunda referencia, `valid`** (`psi-reference --partition valid`, `psi --reference valid`): mismos bins y reglas,
   pero con la partición de validación (pasos 425–550, ya en el régimen posterior al cambio cercano al paso 400) y su
-  propio archivo, `psi_reference_valid.json`, con su hash en `manifest.json`. Hereda los `top_features` de la de train,
-  así que ambas vigilan lo mismo. **Por defecto sigue siendo `train`** (§5f); `make ml-psi-ref` genera las dos y
-  `promote`/`rollback` también. Cada fila de `analytics.drift_metrics` lleva su `reference` (parte de la clave) y la
-  alerta de dos ventanas contiguas solo compara filas de la misma referencia. La demo usa `valid` y muestra el PSI
-  contra `train` como hallazgo: ver ADR-13, D3 (umbral 0,25, ventanas y top-5 no cambian).
+  propio archivo, `psi_reference_valid.json`, con su hash en `manifest.json`. Hereda los `top_features` de la de train.
+  **Solo `valid` genera alertas** (desviación consciente de §5f, ADR-13 D14: los umbrales de decisión se fijaron en
+  validación y contra `train` el score diverge sin deriva): es el valor por defecto de `psi`, de `drift-demo`, de
+  `retrain --check` y del aviso de BI. `train` se calcula y se muestra (`psi --reference train`) como medida informativa
+  del cambio de régimen, siempre con `alert = false`. `make ml-psi-ref`, `promote` y `rollback` regeneran las dos. Cada
+  fila de `analytics.drift_metrics` lleva su `reference` (parte de la clave) y la alerta de dos ventanas contiguas solo
+  compara filas de la misma referencia. Umbral 0,25, ventanas y top-5 no cambian.
 - **Bins**: 10 por deciles con bordes únicos (`(borde[i-1], borde[i]]`); ≤ 10 valores distintos: uno por valor más
   «otro»; un solo bin ⇒ `degenerate`, PSI 0. Proporciones acotadas a ≥ 1e-4, sin renormalizar;
   PSI = Σ (a − e)·ln(a/e). Los valores se redondean a 9 decimales antes de binarizar (Java y Python difieren en el

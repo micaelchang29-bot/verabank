@@ -41,8 +41,8 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   filas reales de `risk.scoring_log`, es decir, sin `model_version = 'warmup'` **y sin las filas sintéticas de
   `make perf-scoring`** (`source_ref` con prefijo `perf-`, sin transferencia; docs/resultados/fase-4.md). Completa si
   hay filas con `occurred_at >= window_end`. Menos de 200 filas ⇒ `insufficient`, sin alerta. `alert = true` solo para
-  `score` y las `top_features`, con PSI > 0,25 en la ventana y en la anterior contigua; las demás se registran sin
-  alerta. Upsert por `(window_start, feature)` con el rol `ml_job`.
+  `score` y las `top_features`, con PSI > 0,25 en la ventana y en la anterior contigua y solo con la referencia `valid`
+  (D14); las demás se registran sin alerta. Upsert por `(window_start, feature, reference)` con el rol `ml_job`.
 - Consecuencias: el job es idempotente y solo calcula ventanas cerradas. Efecto de la regla de completitud: la última
   ventana con datos nunca está completa; en una tanda que termina en un borde de ventana, su última ventana solo se
   calcula cuando llega la tanda siguiente. La exclusión de `perf-` la comparten los tres jobs (PSI, razones y
@@ -53,8 +53,8 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 
 - Contexto: el PSI compara contra entrenamiento (pasos 1–400) y el replay reproduce la partición de prueba (575–744):
   el EDA de la fase 3 vio un cambio de régimen cerca del paso 400.
-- Decisión: tandas alineadas a ventanas: base `--first-step 577 --steps 48`, deriva `--first-step 625 --steps 48
-  --amount-factor 3`. `make drift-demo` juzga por **la ventana en que cae** cada alerta, no por cuándo se calculó: base
+- Decisión: tandas alineadas a ventanas: base `--first-step 577 --steps 48`, deriva `--first-step 625 --steps 72
+  --amount-factor 3` (72 pasos desde D14: así las ventanas 625–648 y 649–672 quedan completas). `make drift-demo` juzga por **la ventana en que cae** cada alerta, no por cuándo se calculó: base
   = ventanas 577–624, deriva = 625–672 (la ventana 601–624 de la base solo se completa con la tanda de deriva). Si la
   base alerta o la deriva no, la demo se detiene con código 1 y muestra las tablas de PSI por feature y ventana: no se
   cambian umbral, referencia, ventanas ni top-5 sin decisión explícita.
@@ -113,9 +113,42 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 - Consecuencias: el desajuste de historia deja de explicar el PSI. Contra `train` solo queda el **score** por encima de
   0,25 en dos ventanas seguidas, con las features estables: es la diferencia real de distribución del score entre el
   régimen de entrenamiento y el del replay (cambio cerca del paso 400). La base alertaría contra `train` por el score y
-  no contra `valid`. Umbral, ventanas, referencia por defecto y top-5 no se tocan; qué referencia vigila producción es
-  decisión del usuario. Sigue sin cargarse la historia de más de 24 h para las ventanas: no hace falta, la primera
+  no contra `valid`; D14 decide qué referencia alerta. Umbral, ventanas y top-5 no se tocan. Sigue sin cargarse la historia de más de 24 h para las ventanas: no hace falta, la primera
   aparición queda fuera de ellas.
+
+### D14 · Referencia que dispara la alerta: `valid` (desviación de §5f)
+
+- Contexto: §5f fija la referencia de entrenamiento. Medido con el calentamiento dirigido (D13) y sin deriva, el PSI del
+  score contra `train` es 0,425 (577–600) y 0,371 (601–624), con las features estables, y contra `valid` 0,018 y 0,028.
+  Los umbrales de decisión (`t_review`, `t_block`) se fijaron en la partición de validación, así que es esa
+  distribución la que el servicio debe vigilar.
+- Decisión: **desviación consciente de §5f**: solo las filas con `reference = 'valid'` generan `alert`. `train` se sigue
+  calculando (`psi --reference train`, `make drift-demo`) y mostrando como medida informativa del cambio de régimen, siempre
+  con `alert = false`. `valid` es el valor por defecto de `psi`, de `drift-demo`, del disparador de drift de
+  `retrain --check` y del «aviso de drift» de BI (`docs/kpis-extra.sql`, EXTRA A). Umbral 0,25, ventanas de 24 pasos, regla
+  de dos ventanas contiguas y top-5 no cambian. `drift-demo` usa una deriva de 72 pasos y termina con
+  `python -m verabank_ml drift-verdict`: sale con 0 solo si, con `valid`, la base (577–624) no alertó y la deriva sí, con
+  las cuatro ventanas 577–600 a 649–672 completas.
+- Límite declarado: la alerta ya no detecta el cambio de régimen respecto de entrenamiento (el score contra `train` está
+  siempre por encima de 0,25 en estos datos); ese cambio solo se ve en la tabla informativa. Si el modelo se reentrena
+  (`promote`), `valid` sigue siendo la partición de validación original de PaySim, no la del reentrenamiento. Las filas
+  `train` previas a D14 con `alert = true` (de corridas con la regla anterior) se conservan tal cual; ninguna consulta
+  las lee.
+- Qué explica el PSI de las features fuera del top-5 (análisis offline y de solo lectura sobre `features_A.parquet`, sin
+  tocar features ni referencias). El PSI de las ventanas 577–600 y 601–624 calculado sobre el parquet (historia completa)
+  coincide con el del replay al cuarto decimal (`dst_age_hours` contra `train` 1,4922 y 1,6222, `dst_in_count_24h` 1,1656
+  y 1,3057, `hour_sin` 0,2251 y 1,1568): no es un error de cálculo, y la paridad con el replay es exacta (D13). Lo
+  explican PaySim y la construcción de las features: (1) el volumen cae de 11.289 filas por paso en `train` a 1.041 en
+  `valid` y 740 en la prueba, así que `dst_in_count_24h` (media 0,70 → 0,02 → 0,01), `dst_distinct_src_24h` y
+  `dst_in_sum_24h` (media 234.380 → 5.682 → 4.632) caen de forma estructural; (2) `dst_age_hours` mide la edad desde la
+  primera aparición en todo PaySim, por lo que crece con el paso por construcción (media 52 → 128 → 183 h, p90 188 → 404 →
+  547 h) y toda ventana tardía se aleja de `train`; (3) el perfil horario cambia: en `train` casi no hay actividad de 0 a
+  7 h y se concentra de 8 a 19 h, mientras `valid` y la prueba tienen picos y valles propios (variación total del reparto
+  por hora: 32,5 puntos entre `train` y `valid`, 17,1 entre `train` y prueba; cociente pico/valle de filas por paso: ×845,
+  ×502 y ×173), y una ventana de un solo día no reproduce el promedio de 400 pasos (PSI de `hour_sin` por día dentro de
+  `train`: mediana 0,012 pero hasta 4,06). Contra `valid`, las ventanas de la prueba son estables en volumen (`dst_in_*`
+  ≤ 0,04) y solo se mueven `dst_age_hours` (mediana 0,43) y el perfil horario (mediana 1,06). Ninguna está en el top-5,
+  así que no alertan, y no se cambia ninguna feature ni referencia.
 
 ### D4 · `drift-demo` y `reset-data`
 
@@ -217,9 +250,9 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 
 ## Límites conocidos
 
-- **PSI del score contra `train` (D3, D13).** Corregido el recorte de historia, las features dejan de alertar, pero el PSI
-  del score contra `train` sigue en 0,37–0,42 en la base: es la diferencia de régimen entre entrenamiento y replay. Contra
-  `valid` no alerta. Decidir qué referencia vigila el servicio es una decisión de diseño pendiente.
+- **PSI del score contra `train` (D3, D13, D14).** Corregido el recorte de historia, el PSI del score contra `train` sigue
+  en 0,37–0,42 en la base: es la diferencia de régimen entre entrenamiento y replay. D14 hace que alerte solo `valid`;
+  el cambio de régimen respecto de entrenamiento queda como medida informativa y no genera aviso.
 - **Verificador sin ancla externa (D5).**
 - **Desajuste de historia heredado en el reentrenamiento (D7, 4/D1).**
 - **Muestra sintética en la CI (D11).**
