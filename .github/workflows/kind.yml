@@ -13,7 +13,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  KIND_VERSION: v0.31.0
+  # Release oficial de kubernetes-sigs/kind; SHA-256 del asset kind-linux-amd64 publicado con el release.
+  KIND_VERSION: v0.33.0
+  KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
 
 jobs:
   kind:
@@ -24,7 +26,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: kind ${{ env.KIND_VERSION }}
         run: |
-          curl -fsSLo "$RUNNER_TEMP/kind" "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          curl -fsSLo "$RUNNER_TEMP/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  $RUNNER_TEMP/kind" | sha256sum -c -        # antes de darle permiso de ejecución
           chmod +x "$RUNNER_TEMP/kind"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Manifiestos (comprobación estática)

@@ -7,7 +7,7 @@ réplicas (transfer-service 2, risk-scoring 2, risk-stream 1) y el rol de cada r
 scoring con minAvailable 1; total de límites de memoria (réplicas × límites, más el mayor pod de un Job) ≤ 10 GiB
 (§1.2); ninguna imagen sin etiqueta o con latest y las propias con imagePullPolicy Never; ninguna credencial fuera de
 secretKeyRef ni ningún Secret en los manifiestos; las migraciones de db/migrations completas en sus ConfigMaps; y los
-NodePort del overlay iguales a los extraPortMappings de cluster.yaml. Sale con 1 y lista los problemas.
+NodePort del overlay iguales a los extraPortMappings de cluster.yaml, con la imagen del nodo fijada por digest. Sale con 1 y lista los problemas.
 """
 
 from __future__ import annotations
@@ -110,6 +110,9 @@ def check(docs: list[dict]) -> tuple[list[str], dict]:
         if got != expected:
             problems.append(f"ConfigMap migrations-{d}: {got} no coincide con db/migrations/{d} {expected}")
     cluster = yaml.safe_load((ROOT / "deploy" / "kind" / "cluster.yaml").read_text())
+    for node in cluster["nodes"]:
+        if not re.fullmatch(r"kindest/node:v[\d.]+@sha256:[0-9a-f]{64}", node.get("image", "")):
+            problems.append(f"cluster.yaml: la imagen del nodo {node.get('role')} debe ir fijada por digest")
     mapped = {m["containerPort"] for n in cluster["nodes"] for m in n.get("extraPortMappings", [])}
     for svc, port in NODE_PORTS.items():
         s = by_name.get(("Service", svc))

@@ -250,12 +250,10 @@ amlgen: ## Genera data/aml/{transfers,ground_truth}.jsonl y manifest.json: make 
 	@cd simulator && uv run python -m verabank_sim amlgen --seed $(SEED) --out ../data/aml
 
 # kind (ampliación, ADR-13 D12): manifiestos Kustomize en deploy/kind; Compose debe estar detenido (make down).
-KIND_VERSION ?= v0.31.0
 KIND_CLUSTER ?= verabank
 
-kind-up: ## Crea el clúster kind (deploy/kind/cluster.yaml): transfer-service en localhost:18080 y Metabase en 13000
-	@command -v kind >/dev/null || { echo "falta kind $(KIND_VERSION) (manual 0.3)"; exit 2; }
-	@kind get clusters 2>/dev/null | grep -qx $(KIND_CLUSTER) || kind create cluster --name $(KIND_CLUSTER) --config deploy/kind/cluster.yaml
+kind-up: ## Verifica el SHA-256 de kind v0.33.0 (release oficial) y crea el clúster: transfer-service en 18080, Metabase en 13000
+	@KIND_CLUSTER=$(KIND_CLUSTER) scripts/kind-up.sh
 
 kind-deploy: ## Imágenes a kind, Secret desde .env, manifiestos y espera a Ready (aborta si Compose corre)
 	@KIND_CLUSTER=$(KIND_CLUSTER) scripts/kind-deploy.sh

@@ -76,6 +76,8 @@ jobs:
         run: |
           kubectl kustomize --load-restrictor LoadRestrictionsNone deploy/kind/overlays/kind \
             | python deploy/kind/check_manifests.py
+      - name: Verificación del binario de kind (SHA-256 del release oficial, sin red ni clúster)
+        run: deploy/kind/tests/test_kind_verify.sh
 
   transfer-service:
     name: transfer-service (compilación, unitarias e integración)

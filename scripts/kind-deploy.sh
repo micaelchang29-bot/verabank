@@ -4,18 +4,18 @@
 # a la vez no caben en la memoria de la laptop (§1.2, §8).
 . "$(dirname "$0")/lib.sh"
 . "$(dirname "$0")/kind-lib.sh"
-need kind; need kubectl; need docker
+KIND="$(verified_kind)"; need kubectl; need docker
 
 if [[ -n "$("${COMPOSE_ALL[@]}" --profile bi ps -q 2>/dev/null)" ]]; then
   echo "Compose está corriendo: deténlo antes (make down, conserva los datos) y repite make kind-deploy" >&2
   exit 1
 fi
-kind get clusters 2>/dev/null | grep -qx "$KIND_CLUSTER" || { echo "no existe el clúster $KIND_CLUSTER: make kind-up" >&2; exit 1; }
+"$KIND" get clusters 2>/dev/null | grep -qx "$KIND_CLUSTER" || { echo "no existe el clúster $KIND_CLUSTER: make kind-up" >&2; exit 1; }
 
 echo "== imágenes"
 "${COMPOSE_ALL[@]}" build risk-scoring transfer-service rail-sim
 for image in "${KIND_IMAGES[@]}"; do
-  kind load docker-image --name "$KIND_CLUSTER" "$image"
+  "$KIND" load docker-image --name "$KIND_CLUSTER" "$image"
 done
 
 echo "== Secret verabank-env desde .env (los valores no se imprimen)"
