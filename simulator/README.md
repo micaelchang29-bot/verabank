@@ -233,7 +233,7 @@ y no emiten eventos.
 make replay N=20000 TPS=50 [AMOUNT_FACTOR=1]      # o: python -m verabank_sim replay --n 20000 --tps 50
 ```
 
-Opciones: `--steps K` y `--first-step S` (ver «Tandas por pasos»), `--start-row`, `--amount-factor`, `--concurrency` (20), `--no-warmup`, `--no-labels`, `--no-seed`,
+Opciones: `--steps K` y `--first-step S` (ver «Tandas por pasos»), `--start-row`, `--amount-factor`, `--concurrency` (20), `--no-warmup`, `--no-history-warmup`, `--no-labels`, `--no-seed`,
 `--final-timeout` (60 s), `--paysim`, `--base-url`, `--bootstrap`, `--out` (`data/replay`).
 
 - **Filas.** La partición de prueba de `ml/config.yaml` (pasos 575 a 744), solo los `types` de la configuración (nunca
@@ -247,9 +247,26 @@ Opciones: `--steps K` y `--first-step S` (ver «Tandas por pasos»), `--start-ro
   dentro del paso, ritmo de `--tps` con concurrencia acotada.
 - **Calentamiento (D1).** Antes de empezar carga en `risk.scoring_log`, con el rol `sim_loader` y `COPY`, las filas de los
   24 pasos previos (`model_version = 'warmup'`, `features = '{}'`, `score = 0`, `decision = 'APPROVE'`, con el mismo
-  mapeo). Si ya estaban cargadas (un reintento), cae a `INSERT ... ON CONFLICT DO NOTHING`. **Desajuste aceptado:** las
-  ventanas de 1 h y 24 h quedan correctas, pero `dst_seen_before`, `dst_age_hours` e `is_new_beneficiary` ven menos
-  historia que en el entrenamiento. `--amount-factor` también escala los montos del calentamiento.
+  mapeo). Si ya estaban cargadas (un reintento), cae a `INSERT ... ON CONFLICT DO NOTHING`. Las ventanas de 1 h y 24 h
+  quedan correctas. `--amount-factor` también escala los montos del calentamiento. Los 24 pasos **no** bastan para
+  `dst_seen_before` y `dst_age_hours`, que dependen de la primera aparición del destino: ver el calentamiento dirigido.
+- **Calentamiento dirigido de historia (ADR-13, reabre 4/D1).** Por cada destino `PS-<nombre>` del lote que ya apareció en
+  PaySim antes de `primer_paso - 24` (solo los tipos de `config.yaml`: sin `CASH_IN`, con o sin monto positivo, como el
+  entrenamiento) carga UNA fila en `risk.scoring_log` en el paso de su primera aparición: `model_version = 'warmup'`,
+  `features = '{}'`, `score = 0`, `decision = 'APPROVE'`, `source_ref` y `dest_ref` con el mismo mapeo. Reproduce
+  exactamente ambas features sin cargar los ~5 millones de filas de PaySim, y queda fuera de las ventanas de 24 h, así que
+  no altera las demás. `transfer_id` es un `uuid5` del destino con un espacio de nombres propio; la carga usa `COPY` con el
+  rol `sim_loader` y cae a `ON CONFLICT DO NOTHING`. En tandas encadenadas solo se cargan los destinos cuya fila más
+  antigua en `scoring_log` (lectura con el rol de BI) es posterior a su primera aparición. Antes de enviar imprime
+  `historia: N destinos en el lote; M con historia previa en PaySim; K ya cargados; J filas de historia a cargar`.
+  Está activo por defecto (también en `make bi-seed` y `make drift-demo`); `--no-history-warmup` lo apaga. Las filas
+  `warmup` ya se excluyen de PSI, razones, reentrenamiento y la guarda del reloj no las ve fuera de rango.
+  `is_new_beneficiary` (par origen-destino) no se toca.
+- **`feature-parity`** (`make feature-parity [SAMPLE=5000]`). Toma una muestra determinista de filas del replay ya
+  puntuadas, las empareja con su `row_id` de PaySim por (paso, cuenta de origen, destino, monto) y compara las
+  `features` de `risk.scoring_log` con `data/features/features_A.parquet`: por feature, filas que difieren, porcentaje y
+  diferencia máxima y media (tolerancia 1e-9). Solo con `--amount-factor 1`; las filas sin pareja o ambiguas se cuentan
+  aparte. Sale con 2 si no hay filas o ninguna tiene pareja.
 - **Idempotencia.** La `Idempotency-Key` es `uuid5` de la fila y del monto ya multiplicado por el factor: repetir el replay
   devuelve `200` con `Idempotent-Replayed`, y otro factor no choca con la corrida original. **El `transfer_id` lo asigna
   el servicio** (la solicitud no lo lleva); el replay lo lee de `core.transfers` por la clave de idempotencia.

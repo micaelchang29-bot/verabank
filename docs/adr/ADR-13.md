@@ -77,6 +77,38 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   el STOP. Es el cambio de régimen previsto, no un error del job. Queda pendiente de decisión (ver «Límites
   conocidos»); la corrida sobre base limpia está en las instrucciones de cierre.
 
+### D13 · Calentamiento dirigido de historia (reabre 4/D1)
+
+- Contexto: el replay cargaba solo 24 pasos de calentamiento (4/D1), suficientes para las ventanas de 1 h y 24 h pero no
+  para `dst_seen_before` y `dst_age_hours`, que dependen de la **primera** aparición del destino (D6 de la fase 3). En la
+  ventana 577–600 de la base de desarrollo, `dst_seen_before = 1` era el 4,4 % de las filas (1.915 de 43.825), frente al
+  45,9 % de la referencia de `train` y el 43,1 % de la de `valid`; el PSI del score contra ambas rondaba 1,1 y la causa
+  era el recorte de historia, no un cambio de régimen.
+- Decisión: además de los 24 pasos previos completos, por cada destino `PS-<nombre>` del lote que ya apareció en PaySim
+  antes de `primer_paso - 24` (solo los tipos de `config.yaml`, sin `CASH_IN`; cuenta cualquier monto, como el
+  entrenamiento) se carga UNA fila en `risk.scoring_log`, en el paso de su primera aparición: `model_version = 'warmup'`,
+  `features = '{}'`, `score = 0`, `decision = 'APPROVE'`, mismo mapeo de `source_ref` y `dest_ref` (D10 de la fase 4),
+  `transfer_id` = `uuid5` del destino con un espacio de nombres propio, `COPY` con el rol `sim_loader` y
+  `ON CONFLICT DO NOTHING` si hay un reintento. En tandas encadenadas solo se cargan los destinos cuya fila más antigua
+  en `scoring_log` es posterior a su primera aparición. Se informa antes de enviar (destinos del lote, con historia,
+  ya cargados, filas a cargar). Activo por defecto en `replay`, `bi-seed` y `drift-demo`; `--no-history-warmup` lo apaga.
+  `is_new_beneficiary` no se toca. Las filas `warmup` siguen excluidas de PSI, razones, reentrenamiento y KPIs
+  (pruebas en `ml/tests/test_psi.py` y `simulator/tests/test_history.py`).
+- Auditoría de paridad: `make feature-parity` (`python -m verabank_sim feature-parity --sample 5000`) compara las
+  `features` de `risk.scoring_log` con `features_A.parquet` por `row_id`.
+- Medido (base limpia tras `make reset-data` y `make up`; `replay --steps 48 --first-step 577`, 55.359 filas, 23.341
+  filas de historia de 54.556 destinos): **5.000 de 5.000 filas con pareja y 0 diferencias en las 17 features**
+  (tolerancia 1e-9), incluidas `dst_seen_before`, `dst_age_hours` e `is_new_beneficiary`. `dst_seen_before = 1` es el
+  44,5 % de la ventana 577–600 (19.910 de 44.764), frente al 45,9 % (`train`) y el 43,1 % (`valid`). PSI de las top-5
+  features ≤ 0,03 contra ambas referencias. PSI del score: 0,425 (577–600) y 0,371 (601–624) contra `train`; 0,018 y
+  0,028 contra `valid`.
+- Consecuencias: el desajuste de historia deja de explicar el PSI. Contra `train` solo queda el **score** por encima de
+  0,25 en dos ventanas seguidas, con las features estables: es la diferencia real de distribución del score entre el
+  régimen de entrenamiento y el del replay (cambio cerca del paso 400). La base alertaría contra `train` por el score y
+  no contra `valid`. Umbral, ventanas, referencia por defecto y top-5 no se tocan; qué referencia vigila producción es
+  decisión del usuario. Sigue sin cargarse la historia de más de 24 h para las ventanas: no hace falta, la primera
+  aparición queda fuera de ellas.
+
 ### D4 · `drift-demo` y `reset-data`
 
 - Contexto: la demo necesita una base sin datos anteriores y no hay forma de borrarlos sin perder todo.
@@ -177,9 +209,9 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 
 ## Límites conocidos
 
-- **PSI frente a un replay con historia recortada (D3).** Contra `train` la base de la demo alerta por sí sola, y la
-  evidencia apunta al calentamiento de 24 pasos más que al cambio de régimen; la referencia `valid` existe pero no se ha
-  comprobado en base limpia que baste. Pendiente de decisión.
+- **PSI del score contra `train` (D3, D13).** Corregido el recorte de historia, las features dejan de alertar, pero el PSI
+  del score contra `train` sigue en 0,37–0,42 en la base: es la diferencia de régimen entre entrenamiento y replay. Contra
+  `valid` no alerta. Decidir qué referencia vigila el servicio es una decisión de diseño pendiente.
 - **Verificador sin ancla externa (D5).**
 - **Desajuste de historia heredado en el reentrenamiento (D7, 4/D1).**
 - **Muestra sintética en la CI (D11).**
