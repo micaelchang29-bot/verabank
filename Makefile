@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures ml-psi-ref psi ml-reasons retrain retrain-check promote rollback drift-demo amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed feature-parity smoke load-seed load-transfers reconcile-full pg-restart-test bi-init bi-up bi-check bi-url test-bi
+.PHONY: help up-core down-core stop-core test-core demo-idempotency reconcile check-events rail-sim test-rail test-rail-it chaos-checks chaos-rail ml-env ml-test data eda ml-features ml-train ml-eval-test ml-report ml-export ml-fixtures ml-psi-ref psi ml-reasons retrain retrain-check promote rollback drift-demo amlgen db-roles migrate-risk migrate-analytics db-grants verify-audit seed-risk load-country-risk test-db build-risk test-risk replay aml-run aml-eval up down perf-scoring fallback-demo settle reset-data bi-seed feature-parity smoke load-seed load-transfers reconcile-full pg-restart-test bi-init bi-up bi-check bi-url test-bi kind-up kind-deploy kind-smoke kind-chaos kind-down kind-check
 
 help: ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -248,3 +248,26 @@ SEED ?= 42
 
 amlgen: ## Genera data/aml/{transfers,ground_truth}.jsonl y manifest.json: make amlgen [SEED=42]
 	@cd simulator && uv run python -m verabank_sim amlgen --seed $(SEED) --out ../data/aml
+
+# kind (ampliación, ADR-13 D12): manifiestos Kustomize en deploy/kind; Compose debe estar detenido (make down).
+KIND_VERSION ?= v0.31.0
+KIND_CLUSTER ?= verabank
+
+kind-up: ## Crea el clúster kind (deploy/kind/cluster.yaml): transfer-service en localhost:18080 y Metabase en 13000
+	@command -v kind >/dev/null || { echo "falta kind $(KIND_VERSION) (manual 0.3)"; exit 2; }
+	@kind get clusters 2>/dev/null | grep -qx $(KIND_CLUSTER) || kind create cluster --name $(KIND_CLUSTER) --config deploy/kind/cluster.yaml
+
+kind-deploy: ## Imágenes a kind, Secret desde .env, manifiestos y espera a Ready (aborta si Compose corre)
+	@KIND_CLUSTER=$(KIND_CLUSTER) scripts/kind-deploy.sh
+
+kind-smoke: ## make smoke contra el clúster (KIND=1)
+	@KIND=1 scripts/smoke.sh
+
+kind-chaos: ## k6 a 20 TPS 3 min contra 18080 y borrado forzado de un pod de risk-scoring al minuto 1; éxito, FALLBACK y tiempo a Ready
+	@KIND_CLUSTER=$(KIND_CLUSTER) scripts/kind-chaos.sh
+
+kind-down: ## DESTRUCTIVO (CONFIRM=yes): borra el clúster kind y sus volúmenes
+	@CONFIRM=$(CONFIRM) KIND_CLUSTER=$(KIND_CLUSTER) scripts/kind-down.sh
+
+kind-check: ## Comprobación estática de los manifiestos (sin clúster): límites, probes, réplicas, PDB, ≤ 10 GiB, sin credenciales
+	@kubectl kustomize --load-restrictor LoadRestrictionsNone deploy/kind/overlays/kind | python3 deploy/kind/check_manifests.py

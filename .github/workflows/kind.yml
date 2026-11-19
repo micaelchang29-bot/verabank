@@ -1,0 +1,65 @@
+# Despliegue en kind (ampliación, ADR-13 D12): solo a mano (workflow_dispatch), nunca en push ni en PR.
+# Clúster, despliegue completo y make smoke KIND=1. Credenciales efímeras generadas en el job, enmascaradas.
+name: kind
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kind-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KIND_VERSION: v0.31.0
+
+jobs:
+  kind:
+    name: kind (despliegue y smoke)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: kind ${{ env.KIND_VERSION }}
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/kind" "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x "$RUNNER_TEMP/kind"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Manifiestos (comprobación estática)
+        run: make kind-check
+      - name: .env efímero (copia de .env.example con credenciales aleatorias, enmascaradas)
+        run: |
+          rnd() { openssl rand -hex 18; }
+          cp .env.example .env
+          for var in POSTGRES_PASSWORD VERABANK_TRANSFER_PASSWORD VERABANK_RISK_PASSWORD VERABANK_BI_PASSWORD \
+                     RISK_SVC_PASSWORD SIM_LOADER_PASSWORD ML_JOB_PASSWORD METABASE_DB_PASSWORD METABASE_ADMIN_PASSWORD; do
+            value="$(rnd)"
+            echo "::add-mask::${value}"
+            sed -i "s/^${var}=.*/${var}=${value}/" .env
+          done
+          key="$(rnd)"
+          echo "::add-mask::${key}"
+          cluster_id="$(python3 -c 'import base64, uuid; print(base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("="))')"
+          sed -i -e "s/^KAFKA_CLUSTER_ID=.*/KAFKA_CLUSTER_ID=${cluster_id}/" \
+                 -e "s/^VERABANK_API_KEYS=.*/VERABANK_API_KEYS=ci:${key}/" .env
+      - name: make kind-up
+        run: make kind-up
+      - name: make kind-deploy
+        run: make kind-deploy
+      - name: make kind-smoke
+        run: make kind-smoke
+      - name: Estado del clúster
+        if: failure()
+        run: |
+          kubectl get pods -o wide > kind-state.txt 2>&1 || true
+          kubectl describe pods >> kind-state.txt 2>&1 || true
+          for d in transfer-service risk-scoring risk-stream rail-sim; do kubectl logs "deployment/$d" --tail=200 >> kind-state.txt 2>&1 || true; done
+      - name: Subir estado
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: kind-state
+          path: kind-state.txt
+          retention-days: 7
