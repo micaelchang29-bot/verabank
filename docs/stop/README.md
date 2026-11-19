@@ -30,3 +30,4 @@ campos de abajo en este orden, para que otro agente los procese. Las cifras son 
 | 20261119-0335-reconcile-full-acumulado | 2 | resuelto | prueba | (c) de reconcile-full suma las cargas anteriores en la misma base; no es error del sistema |
 | 20261119-0334-reinicio-wsl | 2 | resuelto | entorno | dos pantallazos azules (0x139, 0x119 del driver AMD) a mitad de E1; recuperación sin descuadres y E1 repetido |
 | 20261119-0450-compensacion-sin-medir | 3 | resuelto parcialmente | prueba | reconcile-full no medía la compensación; medida: 77,8 % < 60 s bajo el pico (objetivo 99 %) |
+| 20261119-0557-kind-service-links | 5 | resuelto | configuración | POSTGRES_PORT=tcp://… inyectado por el Service rompía la URL JDBC; enableServiceLinks: false |

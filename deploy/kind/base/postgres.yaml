@@ -25,6 +25,7 @@ spec:
     metadata:
       labels: {app: postgres}
     spec:
+      enableServiceLinks: false   # sin variables POSTGRES_PORT/KAFKA_PORT de los Services
       terminationGracePeriodSeconds: 30
       containers:
         - name: postgres

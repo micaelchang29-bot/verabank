@@ -7,7 +7,7 @@ réplicas (transfer-service 2, risk-scoring 2, risk-stream 1) y el rol de cada r
 scoring con minAvailable 1; total de límites de memoria (réplicas × límites, más el mayor pod de un Job) ≤ 10 GiB
 (§1.2); ninguna imagen sin etiqueta o con latest y las propias con imagePullPolicy Never; ninguna credencial fuera de
 secretKeyRef ni ningún Secret en los manifiestos; las migraciones de db/migrations completas en sus ConfigMaps; y los
-NodePort del overlay iguales a los extraPortMappings de cluster.yaml, con la imagen del nodo fijada por digest. Sale con 1 y lista los problemas.
+NodePort del overlay iguales a los extraPortMappings de cluster.yaml, con la imagen del nodo fijada por digest, y enableServiceLinks: false en todo pod. Sale con 1 y lista los problemas.
 """
 
 from __future__ import annotations
@@ -59,6 +59,9 @@ def check(docs: list[dict]) -> tuple[list[str], dict]:
         spec = pod_spec(d)
         if spec is None:
             continue
+        if spec.get("enableServiceLinks") is not False:
+            # Un Service «postgres» inyecta POSTGRES_PORT=tcp://… y rompe la configuración de los servicios.
+            problems.append(f"{kind} {name}: falta enableServiceLinks: false")
         long_lived = kind != "Job"
         replicas = d["spec"].get("replicas", 1) if long_lived else 1
         if name in REPLICAS and replicas != REPLICAS[name]:
