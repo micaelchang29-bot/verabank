@@ -2,7 +2,7 @@
 
 ``model_version = 'warmup'``, ``features = '{}'``, ``score = 0`` y ``decision = 'APPROVE'``. Con ellas las ventanas
 de 1 h y 24 h quedan correctas; ``dst_seen_before``, ``dst_age_hours`` e ``is_new_beneficiary`` verán menos historia
-que en el entrenamiento (desajuste aceptado y documentado en simulator/README.md).
+que en el entrenamiento; ``history.py`` lo corrige con una fila por destino (ADR-13, reabre 4/D1).
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 
 from verabank_sim.replay import mapping as m
@@ -29,22 +29,22 @@ def warmup_record(row: m.Row, epoch: datetime) -> list[str]:
             m.occurred_at(epoch, row.step), "{}", "0", "APPROVE", "warmup"]
 
 
-def copy_data(rows: Sequence[m.Row], epoch: datetime) -> str:
+def copy_data(rows: Sequence[m.Row], epoch: datetime, record: Callable[[m.Row, datetime], list[str]] = warmup_record) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     for row in rows:
-        writer.writerow(warmup_record(row, epoch))
+        writer.writerow(record(row, epoch))
     return buffer.getvalue()
 
 
-def insert_sql(rows: Sequence[m.Row], epoch: datetime) -> str:
+def insert_sql(rows: Sequence[m.Row], epoch: datetime, record: Callable[[m.Row, datetime], list[str]] = warmup_record) -> str:
     """Alternativa con ``ON CONFLICT DO NOTHING`` para cuando un ``COPY`` choca con filas ya cargadas.
 
     Sin destino de conflicto a propósito: ``ON CONFLICT (transfer_id)`` exige ``SELECT`` sobre la tabla y ``sim_loader``
     solo tiene ``INSERT`` (db/init/grants.sql).
     """
     values = ",\n".join(
-        "(" + ", ".join(f"'{v}'" for v in warmup_record(r, epoch)[:5]) + ", '{}'::jsonb, 0, 'APPROVE', 'warmup')"
+        "(" + ", ".join(f"'{v}'" for v in record(r, epoch)[:5]) + ", '{}'::jsonb, 0, 'APPROVE', 'warmup')"
         for r in rows)
     return (f"INSERT INTO risk.scoring_log ({COLUMNS})\nVALUES\n{values}\nON CONFLICT DO NOTHING;\n")
 
@@ -62,16 +62,17 @@ def real_rows_before(psql, epoch: datetime, first_step: int, steps: int = 24) ->
     return int(psql.query(real_rows_sql(epoch, first_step, steps))[0][0])
 
 
-def load(psql, rows: Sequence[m.Row], epoch: datetime) -> tuple[int, str]:
-    """Carga el calentamiento. Devuelve (filas, método): ``copy`` o ``insert`` si hubo filas ya cargadas."""
+def load(psql, rows: Sequence[m.Row], epoch: datetime,
+         record: Callable[[m.Row, datetime], list[str]] = warmup_record) -> tuple[int, str]:
+    """Carga el calentamiento (o, con ``record``, otras filas ``warmup`` como las de historia). Devuelve (filas, método): ``copy`` o ``insert`` si hubo filas ya cargadas."""
     if not rows:
         return 0, "copy"
     try:
-        psql.run(copy_data(rows, epoch), "-c", COPY_SQL)
+        psql.run(copy_data(rows, epoch, record), "-c", COPY_SQL)
         return len(rows), "copy"
     except Exception as exc:   # un reintento del mismo replay choca con la clave primaria
         if "duplicate key" not in str(exc):
             raise
     for i in range(0, len(rows), INSERT_BATCH):
-        psql.run(insert_sql(rows[i:i + INSERT_BATCH], epoch), "-f", "-")
+        psql.run(insert_sql(rows[i:i + INSERT_BATCH], epoch, record), "-f", "-")
     return len(rows), "insert"

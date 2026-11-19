@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 from collections import deque
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 
@@ -20,6 +20,7 @@ class Selection:
     warmup: list[Row]             # filas de los 24 pasos previos al primero
     start_step: int | None
     skipped_zero_amount: int      # filas de la partición cuyo monto, tras el factor, no es positivo
+    history: list[Row] = field(default_factory=list)   # primeras apariciones de los destinos del lote (replay.history)
 
 
 def select_rows(path: Path, *, types: Sequence[str], test_steps: tuple[int, int], n: int | None = None,

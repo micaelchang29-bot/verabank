@@ -16,7 +16,7 @@ from typing import Any
 from verabank_sim.load import finalstate, seed_sql
 from verabank_sim.load.engine import run_groups
 from verabank_sim.load.stats import describe
-from verabank_sim.replay import labels, mapping as m, warmup
+from verabank_sim.replay import history, labels, mapping as m, warmup
 from verabank_sim.replay.accounts import replay_accounts
 from verabank_sim.replay.paysim import Selection
 
@@ -30,6 +30,7 @@ class Options:
     amount_factor: Decimal = Decimal(1)
     start_row: int = 0
     warmup: bool = True
+    history_warmup: bool = True       # calentamiento dirigido de historia (--no-history-warmup lo apaga)
     labels: bool = True
     seed: bool = True
     concurrency: int = 20
@@ -98,6 +99,8 @@ def summarize(options: Options, selection: Selection, outcomes: list, final: dic
 
 def run(options: Options, selection: Selection, epoch: datetime, services: Services, out_dir: Path | None) -> dict[str, Any]:
     extra: dict[str, Any] = {"warmup_rows": 0, "warmup_method": None, "warmup_skipped_real_rows": 0,
+                             "history_dests": 0, "history_with_prior": 0, "history_already_loaded": 0,
+                             "history_rows": 0, "history_method": None,
                              "seeded_accounts": 0, "funded_accounts": 0, "labels_published": 0,
                              "steps": options.steps, "first_step": options.first_step}
     if options.seed and selection.rows:
@@ -118,6 +121,15 @@ def run(options: Options, selection: Selection, epoch: datetime, services: Servi
             loaded, method = warmup.load(services.loader_psql, selection.warmup, epoch)
             extra["warmup_rows"], extra["warmup_method"] = loaded, method
             log.info("calentamiento: %d filas (%s)", loaded, method)
+
+    if options.history_warmup and selection.history:
+        plan = history.plan(selection.history, selection.rows, epoch, services.reader_psql)
+        anchor = options.first_step or selection.start_step or selection.rows[0].step
+        print(plan.line(anchor), flush=True)
+        loaded, method = history.load(services.loader_psql, plan.rows, epoch)
+        extra.update(history_dests=plan.batch_dests, history_with_prior=plan.with_history,
+                     history_already_loaded=plan.already_loaded, history_rows=loaded, history_method=method)
+        log.info("historia: %d filas (%s)", loaded, method)
 
     groups = build_jobs(selection.rows, epoch)
     started = services.clock()
@@ -151,6 +163,8 @@ def format_summary(summary: dict[str, Any]) -> str:
         f"por estado final: {summary['by_final_status']}",
         f"latencia de cliente de POST /transfers: {lat('client_latency_ms')}",
         f"scoring_latency_ms: {lat('scoring_latency_ms')}",
+        f"historia: {summary['history_rows']} filas ({summary['history_method']}) para {summary['history_with_prior']} "
+        f"de {summary['history_dests']} destinos del lote; "
         f"calentamiento: {summary['warmup_rows']} filas ({summary['warmup_method']}); "
         f"cuentas sembradas: {summary['seeded_accounts']} "
         f"({summary['funded_accounts']} financiadas); etiquetas publicadas: {summary['labels_published']}",

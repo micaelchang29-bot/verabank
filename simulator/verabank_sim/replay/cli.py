@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import logging
 import os
 from decimal import Decimal, InvalidOperation
@@ -12,9 +13,9 @@ import yaml
 
 from verabank_sim.load.api import HttpApi, api_credentials_from_env
 from verabank_sim.load.db import REPO_ROOT, read_only_psql, sim_loader_psql, transfer_service_psql
-from verabank_sim.replay import mapping as m
+from verabank_sim.replay import history as history_mod, mapping as m
 from verabank_sim.replay.labels import KafkaPublisher
-from verabank_sim.replay.paysim import select_rows
+from verabank_sim.replay.paysim import WARMUP_STEPS, select_rows
 from verabank_sim.replay import run as orchestrator
 from verabank_sim.replay.run import Options, Services, format_summary
 
@@ -62,6 +63,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--start-row", type=int, default=0, help="fila de la partición de prueba por la que empezar (0)")
     parser.add_argument("--concurrency", type=_positive_int, default=20, help="solicitudes en vuelo como máximo (20)")
     parser.add_argument("--no-warmup", action="store_true", help="no carga las 24 horas previas en risk.scoring_log")
+    parser.add_argument("--no-history-warmup", action="store_true",
+                        help="no carga la fila de primera aparición de cada destino del lote (dst_seen_before y dst_age_hours)")
     parser.add_argument("--no-labels", action="store_true", help="no publica FraudLabelConfirmed al terminar")
     parser.add_argument("--no-seed", action="store_true", help="no siembra las cuentas (ya existen con saldo)")
     parser.add_argument("--final-timeout", type=float, default=60.0, help="segundos de espera a que no queden PROCESSING (60)")
@@ -99,12 +102,18 @@ def run(args: argparse.Namespace) -> int:
     if not selection.rows:
         log.error("no hay filas que reproducir con esa selección")
         return 2
+    if not args.no_history_warmup:
+        anchor = first_step or selection.start_step
+        selection = replace(selection, history=history_mod.first_appearances(
+            args.paysim, types=cfg["types"], dests={r.name_dest for r in selection.rows},
+            before_step=anchor - WARMUP_STEPS, factor=args.amount_factor))
     print(plan_line(len(selection.rows), (selection.rows[0].step, selection.rows[-1].step), args.tps), flush=True)
     log.info("replay: %d filas, pasos %d a %d, %d filas de calentamiento", len(selection.rows), selection.rows[0].step,
              selection.rows[-1].step, len(selection.warmup))
     channel, key = api_credentials_from_env()
     options = Options(n=n or len(selection.rows), tps=args.tps, amount_factor=args.amount_factor,
-                      start_row=args.start_row, warmup=not args.no_warmup, labels=not args.no_labels,
+                      start_row=args.start_row, warmup=not args.no_warmup,
+                      history_warmup=not args.no_history_warmup, labels=not args.no_labels,
                       seed=not args.no_seed, concurrency=args.concurrency, final_timeout_s=args.final_timeout,
                       steps=steps, first_step=first_step)
     api = HttpApi(args.base_url, key, args.concurrency)
