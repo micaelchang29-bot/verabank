@@ -81,21 +81,78 @@ class ScoreLog {
      * una ejecuta una consulta de cada tipo de la ruta de scoring (lectura de la bitácora, destino, origen) y el INSERT
      * dentro de una transacción que se revierte. Cada backend de PostgreSQL carga sus cachés de catálogo y planes; sin
      * esto, la primera solicitud real que cae en una conexión nueva los paga. No deja filas en la bitácora.
+     *
+     * <p>Si falla o se cancela (p. ej. por el tiempo máximo del calentamiento), toda conexión que el pool haya entregado
+     * vuelve a él, también las que llegan después: ver {@link Borrowed}.
      */
     Uni<Integer> warmConnections(int connections, ScoreInput in, FeatureComputer.Windows w, Map<String, Double> features,
             DecisionPolicy.Scored scored, String modelVersion) {
-        List<Uni<SqlConnection>> acquire = new ArrayList<>();
-        for (int i = 0; i < connections; i++) {
-            acquire.add(pool.getConnection());
-        }
         Tuple insert = insertParams(in, features, scored, modelVersion);
-        return Uni.join().all(acquire).andFailFast().flatMap(held -> {
-            List<Uni<Void>> runs = new ArrayList<>();
-            for (SqlConnection c : held) {
-                runs.add(exercise(c, in, w, insert).eventually(c::close));
+        return Uni.createFrom().deferred(() -> {
+            Borrowed borrowed = new Borrowed();
+            List<Uni<SqlConnection>> acquire = new ArrayList<>();
+            for (int i = 0; i < connections; i++) {
+                acquire.add(borrowed.acquire(pool));
             }
-            return Uni.join().all(runs).andFailFast().map(done -> held.size());
+            return Uni.join().all(acquire).andFailFast().flatMap(held -> {
+                List<Uni<Void>> runs = new ArrayList<>();
+                for (SqlConnection c : held) {
+                    runs.add(exercise(c, in, w, insert).eventually(() -> borrowed.release(c)));
+                }
+                return Uni.join().all(runs).andFailFast().map(done -> held.size());
+            }).onTermination().invoke(borrowed::releaseAll);
         });
+    }
+
+    /**
+     * Conexiones prestadas por un calentamiento. Con {@code andFailFast}, en cuanto una conexión no se podía abrir (la
+     * base aún no estaba lista) el resto quedaba fuera del pool para siempre: las que ya se habían entregado no se
+     * cerraban y las que llegaban después se descartaban sin devolverlas. Con el pool lleno de conexiones perdidas, cada
+     * reintento esperaba hasta el tiempo máximo y el servicio no llegaba a estar listo (D16). Aquí cada conexión se
+     * registra en cuanto el pool la entrega, fuera de la suscripción de Mutiny, y {@link #releaseAll()} las devuelve todas
+     * al terminar, sea con éxito, fallo o cancelación; las que llegan después se devuelven en el acto.
+     */
+    private static final class Borrowed {
+
+        private final List<io.vertx.sqlclient.SqlConnection> open = new ArrayList<>();
+        private boolean finished;
+
+        Uni<SqlConnection> acquire(PgPool pool) {
+            return Uni.createFrom().emitter(emitter -> pool.getDelegate().getConnection().onComplete(result -> {
+                if (result.failed()) {
+                    emitter.fail(result.cause());
+                } else if (keep(result.result())) {
+                    emitter.complete(SqlConnection.newInstance(result.result()));
+                }
+            }));
+        }
+
+        private synchronized boolean keep(io.vertx.sqlclient.SqlConnection connection) {
+            if (finished) {
+                connection.close();   // llegó tarde: el calentamiento ya terminó
+                return false;
+            }
+            open.add(connection);
+            return true;
+        }
+
+        private synchronized boolean forget(io.vertx.sqlclient.SqlConnection connection) {
+            return open.remove(connection);
+        }
+
+        Uni<Void> release(SqlConnection connection) {
+            return forget(connection.getDelegate()) ? connection.close() : Uni.createFrom().voidItem();
+        }
+
+        void releaseAll() {
+            List<io.vertx.sqlclient.SqlConnection> rest;
+            synchronized (this) {
+                finished = true;
+                rest = new ArrayList<>(open);
+                open.clear();
+            }
+            rest.forEach(io.vertx.sqlclient.SqlConnection::close);
+        }
     }
 
     private static Uni<Void> exercise(SqlConnection c, ScoreInput in, FeatureComputer.Windows w, Tuple insert) {

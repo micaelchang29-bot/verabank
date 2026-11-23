@@ -36,6 +36,9 @@ todas las conexiones del pool y en cada una ejecuta una consulta de cada tipo de
 destino, origen y el INSERT en una transacción revertida) y (3) hace `VERABANK_WARMUP_ROUNDS` pasadas sintéticas
 completas. No escribe en `risk.scoring_log`. La readiness solo sube cuando terminó (`WarmUpPendingIT`); la primera
 solicitud real tras `ready` responde por debajo de los 120 ms de transfer-service (`FirstCallLatencyIT`).
+Si la base no estaba lista y el calentamiento falla o se agota su tiempo, devuelve al pool todas las conexiones que
+llegó a abrir, también las que llegan tarde, y la readiness lo reintenta hasta lograrlo. Antes se quedaban fuera del
+pool y el pod no llegaba nunca a `ready` (D16 en kind; `WarmUpAfterFailedConnectionsIT`, `WarmUpAfterLateConnectionsIT`).
 
 ## Rol stream
 
