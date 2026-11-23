@@ -68,6 +68,17 @@ def load_queries(paths=KPI_FILES) -> list[Query]:
     return queries
 
 
+class ApiError(RuntimeError):
+    def __init__(self, method: str, path: str, status: int, text: str):
+        super().__init__(f"{method} {path}: HTTP {status}: {text[:300]}")
+        self.status, self.text = status, text
+
+    @property
+    def transient(self) -> bool:
+        """Metabase perdió la conexión con su base (p. ej. PostgreSQL se recreó): responde 5xx o un 401 que lo dice."""
+        return self.status >= 500 or (self.status == 401 and "connection" in self.text.lower())
+
+
 class Metabase:
     """Cliente mínimo de la API. Cuenta las creaciones y actualizaciones (la prueba de idempotencia las mira)."""
 
@@ -78,14 +89,26 @@ class Metabase:
     def call(self, method: str, path: str, **kw) -> Any:
         r = self.http.request(method, path, **kw)
         if r.status_code >= 400:
-            raise RuntimeError(f"{method} {path}: HTTP {r.status_code}: {r.text[:300]}")
+            raise ApiError(method, path, r.status_code, r.text)
         return r.json() if r.content else None
 
     def close(self) -> None:
         self.http.close()
 
     # --- sesión ---
-    def login(self, email: str, password: str) -> str:
+    def login(self, email: str, password: str, attempts: int = 5, pause_s: float = 5.0) -> str:
+        """Reintenta solo los fallos transitorios (ApiError.transient); una contraseña errónea falla a la primera."""
+        for attempt in range(1, attempts + 1):
+            try:
+                return self._login(email, password)
+            except ApiError as e:
+                if not e.transient or attempt == attempts:
+                    raise
+                print(f"login en Metabase: {e}; reintento {attempt} de {attempts - 1}", file=sys.stderr)
+                time.sleep(pause_s)
+        raise AssertionError("inalcanzable")
+
+    def _login(self, email: str, password: str) -> str:
         props = self.call("GET", "/api/session/properties")
         if not props.get("has-user-setup"):
             body = {"token": props["setup-token"],

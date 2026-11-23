@@ -120,7 +120,7 @@ class FakeMetabase:
 def fake():
     server = FakeMetabase()
     with respx.mock(base_url=BASE, assert_all_called=False) as router:
-        router.route().mock(side_effect=server.handler)
+        router.route().mock(side_effect=lambda request: server.handler(request))   # se busca en cada solicitud
         yield server
 
 
@@ -172,3 +172,46 @@ def test_a_changed_query_is_updated_in_place(fake):
     run_once(fake)
     assert card["dataset_query"]["native"]["query"] == sm.load_queries()[0].sql
     assert len(fake.objects["card"]) == 7
+
+
+def test_login_retries_when_metabase_lost_its_database(fake, monkeypatch):
+    """Primer bi-up: al recrearse PostgreSQL, Metabase respondió 401 al login por su conexión cortada."""
+    fake.setup_done = True
+    original, calls = fake.handler, []
+
+    def flaky(request):
+        if request.url.path == "/api/session":
+            calls.append(1)
+            if len(calls) == 1:
+                return httpx.Response(401, text="FATAL: terminating connection due to administrator command")
+        return original(request)
+
+    monkeypatch.setattr(fake, "handler", flaky)
+    monkeypatch.setattr(sm.time, "sleep", lambda s: None)
+    mb = sm.Metabase(BASE)
+    try:
+        assert mb.login(ENV["METABASE_ADMIN_EMAIL"], ENV["METABASE_ADMIN_PASSWORD"]) == "sess-1"
+    finally:
+        mb.close()
+    assert len(calls) == 2
+
+
+def test_login_does_not_retry_a_wrong_password(fake, monkeypatch):
+    fake.setup_done = True
+    original, calls = fake.handler, []
+
+    def wrong(request):
+        if request.url.path == "/api/session":
+            calls.append(1)
+            return httpx.Response(401, json={"errors": {"password": "did not match stored password"}})
+        return original(request)
+
+    monkeypatch.setattr(fake, "handler", wrong)
+    monkeypatch.setattr(sm.time, "sleep", lambda s: None)
+    mb = sm.Metabase(BASE)
+    try:
+        with pytest.raises(sm.ApiError, match="HTTP 401"):
+            mb.login(ENV["METABASE_ADMIN_EMAIL"], "otra")
+    finally:
+        mb.close()
+    assert len(calls) == 1
