@@ -76,7 +76,7 @@ Cifras propias, medidas en la laptop de referencia (WSL2 con Docker Desktop, 12 
 | Modelo elegido en prueba (`fraud-xgb/6`) | PR-AUC 0,6029; recall 52,26 % a FPR 0,5 % y 39,63 % a FPR 0,1 % | `ml/reports/test_evaluation.json` |
 | Costo frente a no tener modelo (prueba) | 713,1 M frente a 2.979,1 M: −76,06 %; recall de REVIEW o BLOCK 48,17 % | ídem |
 | p95 de scoring a 50 TPS (k6 directo, 30 min) | 4,54 ms (p99 5,43 ms); pico de 100 TPS: 4,31 ms; 16 errores en 90.000 (0,018 %) | `make perf-scoring DURATION=30m PEAK=1` |
-| p95 de `POST /transfers` (T-17, 50 TPS 30 min + pico de 100 TPS 5 min) | 265,7 ms (p50 15,8, p99 1.301,5); a 50 TPS sostenidos, 21,5 ms; 0 % fuera de 200/201/422 | `make load-transfers DURATION=30m PEAK=1` |
+| p95 de `POST /transfers` (T-17, 50 TPS 30 min + pico de 100 TPS 5 min) | 265,7 ms (p50 15,8, p99 1.301,5); a 50 TPS sostenidos, 21,5 ms (otra corrida de 5 min: 54,9 ms, p99 137,0; varía entre corridas); 0 % fuera de 200/201/422 | `make load-transfers DURATION=30m PEAK=1` |
 | Replay de PaySim (20.000 transferencias a 50 TPS) | p95 de `POST /transfers` 54,9 ms; 3 `FALLBACK` de 20.000; conciliación 0 y 0 | `make replay N=20000 TPS=50` |
 | Compensación de las FAILED en el pico de 100 TPS | 77,79 % por debajo de 60 s (n = 7.347; objetivo 99 %: **no cumple**, ver §6) | `make reconcile-full` |
 | Duplicados y descuadres tras la carga y la caída de PostgreSQL | 0 duplicados, 0 descuadres, 0 estados no finales; cadena de auditoría íntegra (299.887 filas); tras reiniciar PostgreSQL, 1 error en 450 solicitudes y normalidad a los 0,4 s | `make reconcile-full`, `make pg-restart-test`, `make verify-audit` |
@@ -120,6 +120,9 @@ MLflow: `uv run --project ml mlflow ui --backend-store-uri sqlite:///ml/mlflow.d
   `dst_seen_before` y `dst_age_hours` coinciden con el entrenamiento (paridad 0 diferencias en 17 features; ADR-13 D13).
 - **Promoción y rollback no verificables con los datos.** Exigen ≥ 24 pasos en sombra con etiquetas maduras (48 pasos
   más) y la partición de prueba termina en el paso 744; la lógica está cubierta por pruebas (ADR-13 D8).
+- **El reentrenamiento usa la partición de prueba.** El replay sale de los pasos 575–744 de PaySim, los que el champion
+  reservó para su evaluación final: las métricas del challenger no se comparan con las del champion en `test`
+  (ADR-13, «Límites conocidos»).
 - **Auditoría sin ancla externa.** `audit.verify_chain` detecta alteraciones, borrados y huecos intermedios, pero no el
   truncado del final ni la reescritura completa de la cadena (ADR-13 D5).
 - Simplificaciones de laboratorio: un broker de Kafka, una instancia de PostgreSQL con esquemas por servicio, alertas
