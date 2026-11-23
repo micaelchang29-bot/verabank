@@ -34,9 +34,6 @@ ko "$SCRIPT" --tree "$repo"
 git rm -q --cached notas.md; rm "$repo/notas.md"
 mkdir -p "$tmp/plano"; printf '%s\n' "$GEN" > "$tmp/plano/x.txt"
 ko "$SCRIPT" --tree "$tmp/plano"                     # fuera de un repositorio: grep -r
-mkdir -p "$repo/docs"; printf '%s\n' "$CO" > "$repo/docs/verabank-manual.md"; git add docs/verabank-manual.md
-ok "$SCRIPT" --tree "$repo"                          # el manual documenta los comandos: excluido como en §7
-git rm -q --cached docs/verabank-manual.md
 mkdir -p "$repo/.githooks"; printf '%s\n' "$GEN" > "$repo/.githooks/regla"   # .githooks queda excluido
 ok "$SCRIPT" --tree "$repo"
 

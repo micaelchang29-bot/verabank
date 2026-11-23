@@ -30,6 +30,8 @@ public class AlertService {
     static final int DEFAULT_LIMIT = 50;
     static final int MAX_LIMIT = 200;
     static final String AUDIT_ACTION = "AML_ALERT_STATUS_CHANGED";
+    /** Límite de la transacción que audita: la espera de la cadena puede pasar de los 250 ms del rol (ver transition). */
+    static final String AUDIT_STATEMENT_TIMEOUT = "5s";
     static final String AUDIT_ENTITY = "AML_ALERT";
 
     private static final String RANK = "CASE severity WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 ELSE 1 END";
@@ -113,12 +115,17 @@ public class AlertService {
                             .execute(Tuple.of(alertId, newStatus, closedAt, closes ? channel : null))
                             .flatMap(updated -> {
                                 // La cadena de hash de auditoría se serializa hasta el commit: se escribe al final.
-                                return conn.preparedQuery("SELECT audit.append($1, $2, $3, $4, $5, $6)")
+                                // Su espera cuenta en el statement_timeout de 250 ms de risk_svc (respaldo del scoring);
+                                // con transfer-service reteniendo la cadena, la transición fallaba. Solo en esta
+                                // transacción (SET LOCAL) el límite sube a AUDIT_STATEMENT_TIMEOUT.
+                                return conn.query("SET LOCAL statement_timeout = '" + AUDIT_STATEMENT_TIMEOUT + "'")
+                                        .execute()
+                                        .flatMap(set -> conn.preparedQuery("SELECT audit.append($1, $2, $3, $4, $5, $6)")
                                         .execute(Tuple.tuple().addValue(channel).addValue(AUDIT_ACTION)
                                                 .addValue(AUDIT_ENTITY).addValue(alertId.toString())
                                                 .addValue(correlationId)
                                                 .addValue(new JsonObject(detail(current, from, newStatus, comment))))
-                                        .replaceWith(view(updated.iterator().next()));
+                                        .replaceWith(view(updated.iterator().next())));
                             });
                 }));
     }

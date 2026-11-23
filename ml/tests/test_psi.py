@@ -217,7 +217,7 @@ def test_job_matches_an_independent_implementation_and_skips_warmup_and_incomple
 
 
 def test_k6_synthetic_rows_are_excluded(pg, ref):
-    """make perf-scoring escribe filas con source_ref «perf-…» y sin transferencia (docs/resultados/fase-4.md)."""
+    """make perf-scoring escribe filas con source_ref «perf-…» y sin transferencia."""
     pg.reset()
     insert_rows(pg, rows_for(ref, 24, 0) + rows_for(ref, 25, 0, n=5))
     with pg.connect("admin") as conn:

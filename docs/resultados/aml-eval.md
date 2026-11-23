@@ -30,7 +30,7 @@ Contra la verdad de terreno de `amlgen` (D12). Solo cuentan las alertas que toca
 | `FAN_IN` | 20 | 0 | 0,00 % (por diseño) | — | no cubierta |
 | `FAST_PASS` | 30 | 0 | 0,00 % (por diseño) | — | no cubierta |
 
-`FAN_IN` (fuera del corte de alcance) y `FAST_PASS` (sin regla en §5a) no están cubiertas: recall 0 por diseño (manual 0.1). Si el recall de una tipología supera su techo, queda «inconsistente»: la implementación de la regla y la copia mínima del generador discrepan, y hay que investigarlo.
+`FAN_IN` (fuera del corte de alcance) y `FAST_PASS` (sin regla en §5a) no están cubiertas: recall 0 por diseño (línea de corte del alcance, `docs/diseno.md` §8). Si el recall de una tipología supera su techo, queda «inconsistente»: la implementación de la regla y la copia mínima del generador discrepan, y hay que investigarlo.
 
 ## Instancias afectadas por transferencias rechazadas o sin completar (aparte)
 

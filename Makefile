@@ -215,7 +215,7 @@ bi-url: ## URL de Metabase y del dashboard VeraBank — Riesgo
 test-bi: ## Pruebas de bi/ (parser de docs/kpis.sql e idempotencia del script, API simulada)
 	@uv run --project bi --frozen pytest bi/tests
 
-# Carga T-17 (fase 5, D10; docs/resultados/fase-5.md). No corre en la CI.
+# Carga T-17 (fase 5, ADR-13 D10). No corre en la CI.
 ACCOUNTS ?= 5000
 KIND ?= 0
 

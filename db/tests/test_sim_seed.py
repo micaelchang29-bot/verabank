@@ -1,7 +1,7 @@
 """Siembra masiva de cuentas del simulador (simulator/verabank_sim/load/seed_sql.py) contra PostgreSQL real.
 
 El módulo del simulador usa solo la biblioteca estándar, así que se carga por ruta: este proyecto no depende de él.
-Comprueba lo que importa del manual 2.2: los saldos entran como asientos desde CLEARING, la conciliación sigue en 0 y
+Comprueba que los saldos entran como asientos desde CLEARING, la conciliación sigue en 0 y
 0, no se emite ningún evento ni se toca risk.scoring_log, y repetir la siembra no cambia nada.
 """
 

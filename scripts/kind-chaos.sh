@@ -2,7 +2,8 @@
 # make kind-chaos (ADR-13, D12): k6 (perf/transfers.js) a 20 TPS contra localhost:18080; un minuto después del
 # calentamiento borra un pod de risk-scoring con --grace-period=0 --force. Informa el éxito de k6 (200, 201 y 422),
 # cuántas transferencias de la ventana se decidieron por FALLBACK y cuánto tardó el reemplazo en estar Ready.
-# Objetivo: éxito >= 99 %. Necesita make kind-deploy y el canal loadtest en VERABANK_API_KEYS.
+# Sale con 1 si el éxito baja de 99 %, si más del 1 % sale por FALLBACK, si el reemplazo no queda Ready o si k6 falla
+# (scripts/kind_chaos_verdict.py). Necesita make kind-deploy y el canal loadtest en VERABANK_API_KEYS.
 . "$(dirname "$0")/lib.sh"
 . "$(dirname "$0")/kind-lib.sh"
 need kubectl; need docker
@@ -24,6 +25,7 @@ sql() { kc exec -i statefulset/postgres -- sh -c 'PGPASSWORD="$VERABANK_TRANSFER
 echo "== cuentas de la carga (${ACCOUNTS} orígenes, 2.000 destinos)"
 VERABANK_KIND=1 scripts/sim.sh load-seed --accounts "$ACCOUNTS" --destinations 2000
 
+rm -f "$OUT/transfers-summary.json"   # que un resumen viejo no pase por el de esta corrida
 started="$(date -u +%FT%T.%3NZ)"
 echo "== k6: ${RATE} TPS, 60 s de calentamiento y ${DURATION} medidos (inicio ${started})"
 API_KEY="$LOADTEST_KEY" docker run --rm --network host -u "$(id -u):$(id -g)" -e API_KEY \
@@ -44,27 +46,18 @@ while (( SECONDS - killed_at < 300 )); do
   if [[ -n "$replacement" ]]; then ready_s=$((SECONDS - killed_at)); break; fi
   sleep 1
 done
-echo "reemplazo de ${victim} Ready en: ${ready_s:-no quedó Ready en 300} s"
 set +e
 wait "$k6"; k6_status=$?
 ended="$(date -u +%FT%T.%3NZ)"
 
-# Resumen propio de perf/transfers.js (handleSummary): counts por resultado y latencia de la fase medida.
-python3 - "$OUT/transfers-summary.json" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-c = d["counts"]
-ok = c["201"] + c["200_replayed"] + c["422_transfer_declined"] + c["422_insufficient_funds"]
-bad = c["other"] + c["422_other"] + c["200_not_replayed"]
-total = ok + bad
-lat = d.get("load_latency_ms", {})
-print(f"k6: {total} respuestas; éxito (200, 201, 422) {100 * ok / total:.2f} %; fuera de esos códigos {bad}; "
-      f"p95 {lat.get('p(95)', 0):.1f} ms, p99 {lat.get('p(99)', 0):.1f} ms" if total else "k6: sin respuestas")
-PY
-fallback="$(sql <<SQL
-SELECT count(*) FILTER (WHERE decision_source = 'FALLBACK') || ' de ' || count(*)
+# Transferencias de la ventana decididas por FALLBACK, sobre las puntuadas (separadas por un espacio).
+counts="$(sql <<SQL
+SELECT count(*) FILTER (WHERE decision_source = 'FALLBACK') || ' ' || count(*)
 FROM core.transfers WHERE client_id = 'loadtest' AND created_at >= '${started}' AND created_at < '${ended}';
 SQL
 )"
-echo "FALLBACK en la ventana: ${fallback}"
-echo "k6 terminó con ${k6_status}; salida en ${OUT}"
+read -r fallback scored <<<"${counts:-0 0}"
+echo "salida de k6 en ${OUT} (código ${k6_status})"
+# Resumen propio de perf/transfers.js (handleSummary). El veredicto sale con 1 si no se cumple el objetivo.
+[[ -f "$OUT/transfers-summary.json" ]] || { echo "CAOS FALLÓ: k6 no dejó ${OUT}/transfers-summary.json" >&2; exit 1; }
+python3 "$ROOT/scripts/kind_chaos_verdict.py" "$OUT/transfers-summary.json" "${fallback:-0}" "${scored:-0}" "$ready_s" "$k6_status"

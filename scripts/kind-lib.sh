@@ -15,7 +15,7 @@ KIND_SECRET_KEYS=(POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD VERABANK_TRANSFER_
 # plataforma no es Linux amd64 (no hay hash fijado para otras). KIND_BIN permite indicar la ruta.
 verified_kind() {
   local bin="${KIND_BIN:-$(command -v kind || true)}" got
-  [[ -n "$bin" && -f "$bin" ]] || { echo "falta kind ${KIND_VERSION} (manual 0.3; deploy/kind/README.md)" >&2; return 2; }
+  [[ -n "$bin" && -f "$bin" ]] || { echo "falta kind ${KIND_VERSION} (deploy/kind/README.md)" >&2; return 2; }
   [[ "$(uname -s)/$(uname -m)" == Linux/x86_64 ]] || { echo "solo hay SHA-256 fijado para Linux amd64" >&2; return 2; }
   got="$(sha256sum "$bin" | cut -d' ' -f1)"
   if [[ "$got" != "$KIND_SHA256_LINUX_AMD64" ]]; then
@@ -25,6 +25,6 @@ verified_kind() {
   printf '%s\n' "$bin"
 }
 
-need() { command -v "$1" >/dev/null 2>&1 || { echo "falta $1 en el PATH (manual 0.3)" >&2; exit 2; }; }
+need() { command -v "$1" >/dev/null 2>&1 || { echo "falta $1 en el PATH (deploy/kind/README.md)" >&2; exit 2; }; }
 kc() { kubectl --context "$KIND_CONTEXT" "$@"; }
 manifests() { kubectl kustomize --load-restrictor LoadRestrictionsNone "$ROOT/deploy/kind/overlays/kind"; }

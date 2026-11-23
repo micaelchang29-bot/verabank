@@ -16,6 +16,24 @@ ALTER DEFAULT PRIVILEGES FOR ROLE verabank_risk IN SCHEMA risk
 -- de ventana por índice, API de alertas) son de milisegundos.
 ALTER ROLE risk_svc SET statement_timeout = '250ms';
 
+-- Dueño de audit (T-16, HU-07): las migraciones de audit las ejecuta verabank_transfer, que así quedaba como dueño y
+-- podía vaciar audit_log (TRUNCATE), desactivar trg_audit_immutable o redefinir el trigger de la cadena sin que
+-- audit.verify_chain lo viera. La propiedad pasa a verabank_audit (sin login, db/init/roles_runtime.sql) y
+-- transfer-service se queda con lo que usa: escribir y leer la última fila (el trigger de la cadena la lee con los
+-- privilegios de quien inserta). UPDATE y DELETE se conceden para que los rechace trg_audit_immutable con su mensaje
+-- (T-16 a); ese trigger ya no lo puede desactivar. TRUNCATE no se concede. Consecuencia: una migración nueva de audit
+-- ya no la puede aplicar transfer-service (db/README.md). verify_chain es del rol de arranque y no cambia.
+ALTER SCHEMA audit OWNER TO verabank_audit;
+ALTER TABLE audit.audit_log OWNER TO verabank_audit;
+ALTER FUNCTION audit.chain_hash() OWNER TO verabank_audit;
+ALTER FUNCTION audit.deny_change() OWNER TO verabank_audit;
+ALTER FUNCTION audit.append(TEXT, TEXT, TEXT, TEXT, UUID, JSONB) OWNER TO verabank_audit;
+GRANT USAGE ON SCHEMA audit TO verabank_transfer;
+GRANT SELECT, INSERT, UPDATE, DELETE ON audit.audit_log TO verabank_transfer;
+-- Tampoco un superusuario la vacía por descuido: TRUNCATE no pasa por los triggers de fila.
+CREATE OR REPLACE TRIGGER trg_audit_no_truncate BEFORE TRUNCATE ON audit.audit_log
+  FOR EACH STATEMENT EXECUTE FUNCTION audit.deny_change();
+
 -- Auditoría: risk_svc solo puede llamar a audit.append (SECURITY DEFINER); el USAGE del esquema
 -- no da acceso a sus tablas.
 GRANT USAGE ON SCHEMA audit TO risk_svc;

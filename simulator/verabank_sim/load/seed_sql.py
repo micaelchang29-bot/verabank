@@ -1,4 +1,4 @@
-"""Siembra de cuentas con saldo por asientos desde ``CLEARING`` (manual 2.2), sin escribir saldos de forma directa.
+"""Siembra de cuentas con saldo por asientos desde ``CLEARING``, sin escribir saldos de forma directa.
 
 Es el mecanismo de ``db/seed/01_core_seed.sql`` pero por lotes y con ``INSERT ... SELECT`` sobre un ``VALUES``: cada
 cuenta con saldo recibe una transferencia ``INTERNAL COMPLETED`` desde ``CLEARING`` con su par de asientos D/C, y los

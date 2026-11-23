@@ -2,7 +2,7 @@
 
 - Contexto: la fase 5 añade el esquema `analytics` (vista de §4, `drift_metrics`, `fraud_reasons`), el verificador de la
   cadena de auditoría (T-16), Metabase, el PSI con su demostración, las razones de fraude, el reentrenamiento con
-  promoción y rollback, la carga T-17 y la CI completa. El diseño (§4, §5e–§5g, §6, §7) y el manual dejan sin fijar
+  promoción y rollback, la carga T-17 y la CI completa. El diseño (§4, §5e–§5g, §6, §7) deja sin fijar
   doce detalles; este ADR los registra (D1 a D12) con las concreciones que aparecieron al construir y los límites
   conocidos. Las cifras de §1.2 son objetivos, no resultados.
 
@@ -39,7 +39,7 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 - Contexto: §5f dice «último día simulado» y «dos ventanas seguidas», sin alineación, completitud ni mínimo de filas.
 - Decisión: ventanas de 24 pasos alineadas a `sim_epoch`: la `k` cubre `[24k+1, 24k+24]` (la 24 es 577–600). Datos:
   filas reales de `risk.scoring_log`, es decir, sin `model_version = 'warmup'` **y sin las filas sintéticas de
-  `make perf-scoring`** (`source_ref` con prefijo `perf-`, sin transferencia; docs/resultados/fase-4.md). Completa si
+  `make perf-scoring`** (`source_ref` con prefijo `perf-`, sin transferencia). Completa si
   hay filas con `occurred_at >= window_end`. Menos de 200 filas ⇒ `insufficient`, sin alerta. `alert = true` solo para
   `score` y las `top_features`, con PSI > 0,25 en la ventana y en la anterior contigua y solo con la referencia `valid`
   (D14); las demás se registran sin alerta. Upsert por `(window_start, feature, reference)` con el rol `ml_job`.
@@ -237,10 +237,10 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 
 ### D9 · Metabase
 
-- Contexto: la edición open source no exporta dashboards (manual 0.2).
+- Contexto: la edición open source no exporta dashboards.
 - Decisión: `metabase/metabase:v0.64.6.3` (línea LTS 64, verificada el 2026-11-17), nunca `latest`; perfil `bi`,
   `-Xmx1g`, `mem_limit` 1536m. Base de aplicación `metabase` en la misma instancia con el rol `metabase_app`; datos con
-  `verabank_bi` (el `bi_ro` del manual). Dashboard `VeraBank — Riesgo` por API (`bi/setup_metabase.py`), idempotente.
+  `verabank_bi` (el rol de solo lectura de BI). Dashboard `VeraBank — Riesgo` por API (`bi/setup_metabase.py`), idempotente.
   El aviso de drift es una tarjeta del dashboard (el correo exigiría SMTP).
 - Consecuencias: la conexión filtra `analytics` y `risk`; `verabank_bi` no lee `core`. Una segunda ejecución del
   script solo actualiza.
@@ -260,13 +260,13 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 - Contexto: el runner estándar tiene 4 CPU y 16 GB; PaySim no se puede descargar en la CI (licencia CC BY-SA y
   fragilidad).
 - Decisión: muestra **sintética** de 50.000 filas con el esquema de PaySim generada en el job; verificación de firmas
-  en `.githooks/check-signatures.sh` (excluido del `grep` del manual, que si no la detectaría a sí misma); kind solo por
+  en `.githooks/check-signatures.sh` (su directorio queda fuera de la revisión del árbol, que si no lo detectaría a él mismo); kind solo por
   `workflow_dispatch`; carga, T-17 y caos fuera de la CI.
 - Consecuencias: la CI prueba el pipeline, no las métricas del modelo.
 
 ### D12 · kind (ampliación)
 
-- Contexto: ampliación fuera de la línea de corte (manual 0.1).
+- Contexto: ampliación fuera de la línea de corte (`docs/diseno.md` §8).
 - Decisión: Kustomize con base y overlay `kind` en `deploy/kind/`; `cluster.yaml` publica transfer-service (NodePort
   30080 → host 18080) y Metabase (30300 → 13000). transfer-service ×2, risk-scoring ×2 con `PodDisruptionBudget`
   `minAvailable: 1`, risk-stream ×1, PostgreSQL y Kafka KRaft de un broker en StatefulSets con PVC, Metabase y el rail
@@ -316,6 +316,40 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   COMPLETED); medida por el cierre de la saga, en la carga de 30 min con pico: p50 0,25 s, p99 197 s, 77,8 % < 60 s
   frente al objetivo de 99 % de §1.2. **No cumple** bajo el pico, por el mismo techo.
 
+### D17 · Revisión posterior al cierre (2026-11-23)
+
+Una auditoría del cierre encontró estos fallos; cada uno tiene la prueba que lo habría detectado.
+
+- **El calentamiento de risk-scoring no se recuperaba (D16).** Si el pod arrancaba antes que PostgreSQL, el primer
+  calentamiento fallaba y las conexiones que sí había abierto (o que llegaban tarde) quedaban fuera del pool: cada
+  reintento de la readiness esperaba hasta el tiempo máximo y el pod no llegaba a Ready (2 de 2 despliegues en kind y
+  una vez en Compose tras reiniciar el equipo; en `pg_stat_activity`, 10 conexiones por pod sin ninguna consulta).
+  `ScoreLog.warmConnections` registra cada conexión en cuanto el pool la entrega y la devuelve al terminar, con éxito,
+  fallo o cancelación. `WarmUpAfterFailedConnectionsIT` y `WarmUpAfterLateConnectionsIT` ponen el pool detrás de un
+  proxy que corta o retrasa las primeras conexiones; sin el arreglo, las dos fallan. En kind, con los pods arrancados
+  68 s antes que PostgreSQL y 13–15 fallos de calentamiento cada uno, los dos quedaron Ready solos; smoke en verde y
+  caos con 100 % de éxito, 0 FALLBACK de 4.801 y el reemplazo Ready en 7 s.
+- **El rol de servicio era dueño de `audit`.** `verabank_transfer` aplica las migraciones de audit y quedaba como
+  dueño: podía vaciar `audit_log` (`TRUNCATE`), desactivar `trg_audit_immutable` o redefinir el trigger de la cadena, y
+  `verify_chain` no lo detecta. `db/init/grants.sql` pasa la propiedad a `verabank_audit` (sin login) y deja a
+  transfer-service `SELECT/INSERT/UPDATE/DELETE` sobre `audit_log`, sin `TRUNCATE`; un trigger `BEFORE TRUNCATE` lo
+  rechaza también al superusuario. Consecuencia: una migración nueva de audit ya no la puede aplicar transfer-service
+  (`db/README.md`). `TestAuditOwner` en `db/tests/test_permissions.py`.
+- **`make kind-chaos` no podía fallar.** Terminaba en un `echo` y salía con 0 incluso con 2.540 de 4.801
+  transferencias por FALLBACK (el scoring caído no baja el éxito: el fallback responde). `scripts/kind_chaos_verdict.py`
+  sale con 1 si el éxito baja de 99 %, si más del 1 % sale por FALLBACK, si el reemplazo no queda Ready o si k6 falla;
+  `deploy/kind/tests/test_kind_chaos_verdict.sh` corre en la CI.
+- **La espera de la cadena cuenta en el límite de 250 ms de `risk_svc`.** El `statement_timeout` del rol (respaldo de
+  los 100 ms del scoring) incluye la espera de `pg_advisory_xact_lock(815001)`: con la cadena retenida 3 s por otra
+  sesión, la transición de una alerta respondía 500 y se revertía. La transacción de la transición sube el límite a 5 s
+  con `SET LOCAL` (`AlertService.AUDIT_STATEMENT_TIMEOUT`); el rol no cambia. `AlertsApiIT` lo prueba. Era también la
+  causa más probable del fallo intermitente de `test_t16e` (1 de 7 corridas; 0 de 10 al repetirla), que ahora usa el
+  mismo límite y muestra las excepciones si falla.
+- **Ejemplos de contratos.** La fase 5 añadió un ejemplo por tipo de evento en `contracts/examples/` (15, dos para
+  `TransferScored`: modelo y fallback) y `contracts/validate_examples.py`, que valida cada uno contra el sobre y su
+  payload y comprueba que los `event_type` sean los 14 de `docs/diseno.md` §3.3. Solo son adiciones: ningún esquema
+  cambió. Corren en el job `contratos` de la CI.
+
 ## Límites conocidos
 
 - **PSI del score contra `train` (D3, D13, D14).** Corregido el recorte de historia, el PSI del score contra `train` sigue
@@ -323,6 +357,13 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
   el cambio de régimen respecto de entrenamiento queda como medida informativa y no genera aviso.
 - **Verificador sin ancla externa (D5).**
 - **Desajuste de historia heredado en el reentrenamiento (D7, 4/D1).**
+- **El reentrenamiento usa la partición de prueba (D7).** El replay sale de la partición de prueba de PaySim (pasos
+  575–744), así que el challenger entrena y se valida con filas que el champion reservó para su evaluación final. Sus
+  métricas no son comparables con las del champion en `test`, y `make ml-eval-test` no sirve para evaluarlo. Es lo que
+  el sistema vio en producción simulada; con datos reales serían transferencias posteriores al entrenamiento.
+- **`correlation_id` fuera del hash de la cadena (D5).** El hash cubre `occurred_at`, `actor`, `action`,
+  `entity_type`, `entity_id` y `detail`, como fija §4: un superusuario puede cambiar el `correlation_id` de una fila sin
+  que `verify_chain` lo detecte. Incluirlo exige una fórmula nueva para las filas siguientes.
 - **Muestra sintética en la CI (D11).**
 - **Cuello del rail (D15, D16).** Diagnosticado: la cadena de auditoría serializa cada commit con su `fsync`; techo de
   ≈ 72–82 transferencias/s en la laptop. Sin resolver (decisión de diseño pendiente); la compensación de las FAILED

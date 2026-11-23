@@ -36,6 +36,9 @@ todas las conexiones del pool y en cada una ejecuta una consulta de cada tipo de
 destino, origen y el INSERT en una transacción revertida) y (3) hace `VERABANK_WARMUP_ROUNDS` pasadas sintéticas
 completas. No escribe en `risk.scoring_log`. La readiness solo sube cuando terminó (`WarmUpPendingIT`); la primera
 solicitud real tras `ready` responde por debajo de los 120 ms de transfer-service (`FirstCallLatencyIT`).
+Si la base no estaba lista y el calentamiento falla o se agota su tiempo, devuelve al pool todas las conexiones que
+llegó a abrir, también las que llegan tarde, y la readiness lo reintenta hasta lograrlo. Antes se quedaban fuera del
+pool y el pod no llegaba nunca a `ready` (D16 en kind; `WarmUpAfterFailedConnectionsIT`, `WarmUpAfterLateConnectionsIT`).
 
 ## Rol stream
 
@@ -139,5 +142,5 @@ host con scoring `stub` (lo usa la CI).
   la red de Compose; salidas en `data/perf/`.
 - `make fallback-demo`: para `risk-scoring`, 500 filas del replay deben salir `FALLBACK`; al volver, mide cuánto tarda en
   haber una tanda entera con `MODEL`.
-- Resultados medidos: `docs/resultados/fase-4.md`. Decisiones: `docs/adr/ADR-12.md`.
+- Resultados medidos: `README.md` (§4). Decisiones: `docs/adr/ADR-12.md`.
 - El rol `risk_svc` tiene `statement_timeout = 250ms` en el servidor (respaldo del límite de 100 ms del cliente).

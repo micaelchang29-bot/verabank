@@ -235,7 +235,7 @@ class TestMlJob:
 
 
 class TestBiOnAnalytics:
-    """bi_ro del manual es verabank_bi (db/README.md): SELECT en analytics y en risk.aml_alerts, nada en core."""
+    """verabank_bi, el rol de solo lectura de BI (db/README.md): SELECT en analytics y en risk.aml_alerts, nada en core."""
 
     def test_reads_analytics_and_aml_alerts(self, provisioned_db):
         with provisioned_db.connect("verabank_bi") as conn:

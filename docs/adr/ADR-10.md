@@ -7,4 +7,4 @@
 
 ## Resolución
 
-Spring Boot 3.5.16, el último parche de la línea. El caso fija Spring Boot 3 y los prompts de §7 están escritos para esa línea; el proyecto corre en local, sin exposición. La migración a 4.1 se declara en el README como primer cambio para producción.
+Spring Boot 3.5.16, el último parche de la línea. El caso fija Spring Boot 3; el proyecto corre en local, sin exposición. La migración a 4.1 se declara en el README como primer cambio para producción.

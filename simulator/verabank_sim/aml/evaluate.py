@@ -2,7 +2,7 @@
 
 Reglas: solo cuentan las alertas que tocan transferencias de ``data/aml/``; ``STRUCTURING`` y ``COUNTRY_RISK`` se miden
 contra su tipología homónima; ``THRESHOLD`` se informa aparte; ``FAN_IN`` y ``FAST_PASS`` no están cubiertas por
-diseño (manual 0.1). Si el recall supera el techo de cobertura del generador, se marca «inconsistente»: las
+diseño (línea de corte, docs/diseno.md §8). Si el recall supera el techo de cobertura del generador, se marca «inconsistente»: las
 implementaciones de las reglas discrepan y se investiga, no se «arregla».
 
 El informe es determinista y solo lleva cifras agregadas (ningún identificador de cuenta ni de transferencia).
@@ -133,7 +133,7 @@ def render(report: dict[str, Any]) -> str:
             lines.append(f"| `{typ}` | {t['instances']} | 0 | 0,00 % (por diseño) | — | no cubierta |")
     lines += ["",
               "`FAN_IN` (fuera del corte de alcance) y `FAST_PASS` (sin regla en §5a) no están cubiertas: recall 0 por diseño "
-              "(manual 0.1). Si el recall de una tipología supera su techo, queda «inconsistente»: la implementación de la "
+              "(línea de corte del alcance, `docs/diseno.md` §8). Si el recall de una tipología supera su techo, queda «inconsistente»: la implementación de la "
               "regla y la copia mínima del generador discrepan, y hay que investigarlo.",
               "", "## Instancias afectadas por transferencias rechazadas o sin completar (aparte)", "",
               "| Tipología | Con alguna rechazada por `BLOCK` | Con alguna sin completar |", "|---|---:|---:|"]

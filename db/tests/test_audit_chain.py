@@ -133,6 +133,10 @@ def test_t16e_twenty_threads_keep_the_chain_intact_and_gapless(chain_db):
     def worker(n):
         try:
             with conns[n] as conn:
+                # La espera del bloqueo de la cadena cuenta en el statement_timeout de 250 ms de risk_svc: con 20 hilos y
+                # un fsync lento, alguno pasaba de ahí y la prueba fallaba de vez en cuando. La API de alertas sube el
+                # límite en su transacción (AlertService, AUDIT_STATEMENT_TIMEOUT); aquí, igual.
+                conn.execute("SET statement_timeout = '5s'")
                 for i in range(1000):
                     conn.execute("SELECT audit.append('risk-service', 'LOAD', 'AML_ALERT', %s, NULL, %s::jsonb)",
                                  (f"t{n}-{i}", f'{{"thread": {n}, "i": {i}}}'))  # fmt: skip
@@ -144,7 +148,7 @@ def test_t16e_twenty_threads_keep_the_chain_intact_and_gapless(chain_db):
         t.start()
     for t in threads:
         t.join()
-    assert errors == []
+    assert errors == [], errors[:3]
     with chain_db.connect(ADMIN) as conn:
         ids = conn.execute("SELECT count(*), min(audit_id), max(audit_id) FROM audit.audit_log WHERE audit_id > %s", (before,)).fetchone()
         assert ids == (20_000, before + 1, before + 20_000)
