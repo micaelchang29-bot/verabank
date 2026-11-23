@@ -78,6 +78,8 @@ jobs:
             | python deploy/kind/check_manifests.py
       - name: Verificación del binario de kind (SHA-256 del release oficial, sin red ni clúster)
         run: deploy/kind/tests/test_kind_verify.sh
+      - name: Veredicto de kind-chaos (sale con 1 si el éxito, el FALLBACK o el reemplazo no cumplen; sin clúster)
+        run: deploy/kind/tests/test_kind_chaos_verdict.sh
 
   transfer-service:
     name: transfer-service (compilación, unitarias e integración)
