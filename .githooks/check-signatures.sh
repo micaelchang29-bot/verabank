@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Revisión de firmas y pies de herramientas (CONTRIBUTING.md; manual §7, «Cierre»). Vive en .githooks/ porque contiene
-# las marcas literales: el grep del manual excluye este directorio y, si no, se detectaría a sí mismo (D11).
+# Revisión de firmas y pies de herramientas (CONTRIBUTING.md). Vive en .githooks/ porque contiene
+# las marcas literales: --tree excluye este directorio y, si no, se detectaría a sí mismo (D11).
 #
 #   check-signatures.sh --range <rango>    mensajes de commit del rango (p. ej. origin/main..HEAD)
-#   check-signatures.sh --tree [dir]       archivos versionados del árbol (sin .git, .githooks ni el manual)
+#   check-signatures.sh --tree [dir]       archivos versionados del árbol (sin .git ni .githooks)
 #   check-signatures.sh --env VARIABLE     texto de una variable de entorno (descripción de un PR)
 #   check-signatures.sh --stdin            texto por la entrada estándar
 # Sale con 1 y lista dónde si encuentra alguna marca; con 0 si no. Varias opciones se pueden combinar.
@@ -33,13 +33,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --tree)
       dir="${2:-.}"; [[ $# -ge 2 && "$2" != --* ]] && shift 2 || shift 1
-      # Como el grep del manual (§7): sin .git, .githooks ni docs/verabank-manual.md, que documenta estos comandos. En
-      # un repositorio solo los archivos versionados (no los entornos .venv ni lo ignorado).
+      # Sin .git ni .githooks. En un repositorio, solo los archivos versionados (no los entornos .venv ni lo ignorado).
       if git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        hits=$(cd "$dir" && git ls-files -z | grep -zvE '^\.githooks/|(^|/)verabank-manual\.md$' \
+        hits=$(cd "$dir" && git ls-files -z | grep -zvE '^\.githooks/' \
                | xargs -0r grep -nilE "$FILE_RE" -- || true)
       else
-        hits=$(grep -rnilE "$FILE_RE" --exclude=verabank-manual.md --exclude-dir=.git --exclude-dir=.githooks "$dir" || true)
+        hits=$(grep -rnilE "$FILE_RE" --exclude-dir=.git --exclude-dir=.githooks "$dir" || true)
       fi
       [[ -z "$hits" ]] || report "los archivos: $(tr '\n' ' ' <<<"$hits")"
       ;;

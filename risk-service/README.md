@@ -142,5 +142,5 @@ host con scoring `stub` (lo usa la CI).
   la red de Compose; salidas en `data/perf/`.
 - `make fallback-demo`: para `risk-scoring`, 500 filas del replay deben salir `FALLBACK`; al volver, mide cuánto tarda en
   haber una tanda entera con `MODEL`.
-- Resultados medidos: `docs/resultados/fase-4.md`. Decisiones: `docs/adr/ADR-12.md`.
+- Resultados medidos: `README.md` (§4). Decisiones: `docs/adr/ADR-12.md`.
 - El rol `risk_svc` tiene `statement_timeout = 250ms` en el servidor (respaldo del límite de 100 ms del cliente).

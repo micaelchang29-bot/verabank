@@ -59,5 +59,5 @@ No se aplicó ningún arreglo: los de configuración no mueven el techo y los qu
 ## Incidentes
 
 Durante el diagnóstico el equipo se colgó dos veces (pantallazo azul `0x139` y `0x119`, este último del driver de la
-GPU AMD, a unos 15 min de apagarse la pantalla). Ver `docs/stop/20261119-0334-reinicio-wsl.md`; E1 se repitió entero y
+GPU AMD, a unos 15 min de apagarse la pantalla). E1 se repitió entero y
 la base se verificó sin descuadres.

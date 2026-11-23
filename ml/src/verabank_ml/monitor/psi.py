@@ -128,7 +128,7 @@ def dsn_from_env() -> str:
 
 
 # Filas reales: sin el calentamiento del replay (warmup) ni las sintéticas de make perf-scoring, que van directo a
-# risk-scoring con source_ref «perf-…» y sin transferencia (docs/resultados/fase-4.md). Lo comparten los tres jobs.
+# risk-scoring con source_ref «perf-…» y sin transferencia. Lo comparten los tres jobs.
 REAL = "model_version <> 'warmup' AND source_ref NOT LIKE 'perf-%%'"
 UPSERT = """
 INSERT INTO analytics.drift_metrics (window_start, window_end, feature, psi, n_current, n_bins, degenerate,

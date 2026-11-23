@@ -249,7 +249,7 @@ jobs:
                       "simulator/Dockerfile verabank/rail-sim:dev rail"; do
             read -r file tag scope <<<"$spec"
             # Hasta 3 intentos: la descarga de la distribución de Maven desde repo.maven.apache.org falla a veces en los
-            # runners (docs/stop/20261119-0615-ci-maven-central.md); un fallo de compilación real falla las tres veces.
+            # runners; un fallo de compilación real falla las tres veces.
             for attempt in 1 2 3; do
               if docker buildx build --load -f "$file" -t "$tag" \
                    --cache-from "type=gha,scope=$scope" --cache-to "type=gha,mode=max,scope=$scope" .; then

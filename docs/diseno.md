@@ -1,6 +1,6 @@
 # VeraBank — Diseño de arquitectura y ciencia de datos
 
-Documento de diseño: decisiones, contratos y plan de construcción, sin implementación. `VERIFICAR` marca lo que debe confirmarse antes de construir.
+Documento de diseño: requisitos, arquitectura, contratos, modelo de datos, plan de data science, pruebas y construcción por fases.
 
 ## 1. Requisitos
 
@@ -41,6 +41,9 @@ Documento de diseño: decisiones, contratos y plan de construcción, sin impleme
 - Las etiquetas de fraude llegan 24 h simuladas después, por un tópico propio.
 - Seguridad mínima: API key por canal y rol de solo lectura para BI. Sin frontend: el analista usa endpoints y Metabase.
 - Laptop de referencia: 16 GB de RAM, 8 núcleos.
+- La lista de países de riesgo se carga desde las publicaciones del GAFI/FATF con fecha de vigencia; cambia varias veces al año y no se fija en el código.
+- Umbrales AML (10.000), costos unitarios, capacidad de revisión (0,5 %) y límite del fallback (500) son supuestos de negocio parametrizados.
+- Las cifras de §1.2 son objetivos de diseño; los resultados medidos están en `docs/resultados/`.
 
 ## 2. Arquitectura
 
@@ -186,15 +189,15 @@ Ninguna requiere tarjeta.
 | Herramienta | Licencia | Nota |
 |---|---|---|
 | Java 21 (Temurin) | GPLv2 + Classpath Exception | |
-| Spring Boot 3.5.x / Quarkus 3.x | Apache-2.0 | Ver ADR-10; Quarkus: LTS vigente — VERIFICAR |
+| Spring Boot 3.5.x / Quarkus 3.x | Apache-2.0 | Ver ADR-10; Quarkus: LTS vigente |
 | Apache Kafka 4.x, imagen `apache/kafka` | Apache-2.0 | Solo KRaft. Evitar imágenes Bitnami: pasaron a un repositorio "legacy" sin actualizaciones |
 | PostgreSQL 16+ | PostgreSQL License | |
 | scikit-learn / XGBoost / MLflow / SHAP | BSD-3 / Apache-2.0 / Apache-2.0 / MIT | MLflow local con SQLite |
-| ONNX Runtime / skl2onnx / onnxmltools | MIT / Apache-2.0 / Apache-2.0 | VERIFICAR conversor con la versión de XGBoost |
+| ONNX Runtime / skl2onnx / onnxmltools | MIT / Apache-2.0 / Apache-2.0 | Conversión de XGBoost a ONNX con onnxmltools |
 | Metabase open source | AGPL-3.0 | |
 | Docker Engine / Docker Desktop | Apache-2.0 / suscripción | Desktop es gratuito para uso personal y educativo; alternativas libres: Podman, Colima |
 | kind | Apache-2.0 | |
-| GitHub Actions | Servicio | Gratuito en repositorios públicos — VERIFICAR límites |
+| GitHub Actions | Servicio | Gratuito en repositorios públicos |
 | JUnit 5 / Testcontainers / Flyway / Resilience4j | EPL-2.0 / MIT / Apache-2.0 / Apache-2.0 | |
 | k6 / WireMock | AGPL-3.0 / Apache-2.0 | |
 
@@ -521,7 +524,7 @@ Los datos no se versionan en el repositorio: `make data` los descarga. Kaggle ex
 
 | Dataset | Tamaño | Licencia | Mapeo al dominio | Limitaciones | Uso |
 |---|---|---|---|---|---|
-| PaySim (Kaggle `ealaxi/paysim1`) | 6.362.620 filas, 11 columnas, 744 pasos de 1 h (30 días); fraude ≈ 0,13 % | CC BY-SA 4.0 — VERIFICAR en la ficha | Tipo, monto, origen y destino → `transfers` | Sintético; fraude solo en `TRANSFER` y `CASH_OUT`; casi todos los orígenes aparecen una vez; columnas de saldo con fuga; volumen por paso no estacionario (VERIFICAR en EDA) | **Fraude, principal**: entrena el modelo servido y alimenta el replay |
+| PaySim (Kaggle `ealaxi/paysim1`) | 6.362.620 filas, 11 columnas, 744 pasos de 1 h (30 días); fraude ≈ 0,13 % | CC BY-SA 4.0 | Tipo, monto, origen y destino → `transfers` | Sintético; fraude solo en `TRANSFER` y `CASH_OUT`; casi todos los orígenes aparecen una vez; columnas de saldo con fuga; volumen por paso no estacionario | **Fraude, principal**: entrena el modelo servido y alimenta el replay |
 | Credit Card Fraud (ULB) | 284.807 filas, 492 fraudes (0,172 %) | DbCL 1.0 | Ninguno: V1–V28 son componentes PCA anónimos | No se puede servir en VeraBank; dos días de datos | Opcional: cuaderno sobre desbalance |
 | Default of Credit Card Clients (UCI) | 30.000 × 23; 22 % de impago | CC BY 4.0, sin cuenta | Una fila = un cliente VeraBank; seis meses de pagos → score | Taiwán, 2005; una sola cohorte, sin fechas para split temporal | **Crédito, principal** |
 | IBM AML (AMLworld) | 6 conjuntos sintéticos | CDLA-Sharing-1.0 | Patrones fan-in, fan-out y ciclos | Sin país; orientado a grafos | Opcional: contraste de la regla fan-in |
@@ -682,11 +685,9 @@ GROUP BY 1 ORDER BY 1 DESC LIMIT 24;
 | T-16 | `UPDATE` o `DELETE` en auditoría; fila alterada por un superusuario | La operación falla; la verificación de la cadena detecta la alteración |
 | T-17 | 50 TPS durante 30 min con 10 % de rechazos del rail | NFR cumplidos; conciliación sin diferencias |
 
-## 7. Instructivo de construcción
+## 7. Construcción por fases
 
 **Orden que reduce el retrabajo.** Contratos y DDL primero: todos los módulos los consumen. El núcleo arranca con un scorer de mentira para no depender del modelo. La fase 3 solo depende de `contracts/features.yaml` y puede ir en paralelo con la 2. El `risk-service` se construye cuando ya existen el modelo y los casos dorados. Kubernetes y dashboards van al final, con interfaces estables.
-
-Regla del repositorio (`CONTRIBUTING.md`, se añade a cada prompt): commits convencionales, sin firmas ni pies añadidos por herramientas.
 
 Conciliación, usada en todas las fases (`make reconcile` debe devolver 0 y 0):
 
@@ -702,93 +703,35 @@ WHERE a.held <> 0 AND NOT EXISTS (
 
 ### Fase 1 — Contratos y núcleo transaccional
 
-- [ ] Monorepo: `contracts/`, `transfer-service/`, `risk-service/`, `ml/`, `simulator/`, `deploy/`, `docs/adr/`
-- [ ] OpenAPI, esquemas de eventos y `features.yaml`
-- [ ] Compose con PostgreSQL y Kafka; migraciones Flyway con el DDL de §4
-- [ ] `POST` y `GET /transfers`, idempotencia, retención, transferencia interna, `StubScorer`
-- [ ] Outbox con relay, auditoría, CI de compilación y pruebas
+Alcance: monorepo con `contracts/`, `transfer-service/`, `risk-service/`, `ml/`, `simulator/`, `deploy/`, `docs/adr/`; OpenAPI, esquemas de eventos y `features.yaml`; Compose con PostgreSQL y Kafka; migraciones Flyway con el DDL de §4; `POST` y `GET /transfers`, idempotencia, retención, transferencia interna, `StubScorer`; outbox con relay, auditoría, CI de compilación y pruebas.
 
 **Aceptación:** T-01 a T-04 en verde; cada transferencia completada tiene su evento en Kafka; conciliación en cero.
 
-```bash
-make up-core && make test-core
-make demo-idempotency        # dos POST con la misma clave: 201 y luego 200
-make reconcile
-```
-
-> **Prompt.** Contexto: monorepo `verabank`. Implementa `transfer-service` con Java 21 y Spring Boot 3.5 (MVC, JdbcClient, Flyway, virtual threads). Usa sin modificar el DDL de `db/migrations/core` y `contracts/openapi.yaml`. Alcance: `POST /api/v1/transfers` con cabecera `Idempotency-Key` (unicidad `client_id + idempotency_key`; misma clave y mismo hash devuelve 200 con `Idempotent-Replayed: true`; hash distinto, 422); retención de fondos con UPDATE condicional; transferencia interna con asientos D/C en una transacción; interfaz `FraudScorer` con `StubScorer` que siempre aprueba; outbox con relay por sondeo (`FOR UPDATE SKIP LOCKED`, bloqueo consultivo para un único relay). Errores en `application/problem+json`. Pruebas con JUnit 5 y Testcontainers (PostgreSQL, Kafka): duplicado concurrente, saldo insuficiente, publicación del outbox. No implementes rail externo ni scoring real.
-
 ### Fase 2 — Saga externa y compensación
 
-- [ ] Rail simulado: tasa de rechazo, retraso y duplicados configurables
-- [ ] Estados de la saga, consumidor de `rail.replies` con inbox, poller con backoff, `CreditStatusQuery`
-- [ ] Endpoint de revisión del analista
-- [ ] Métricas `saga.stuck` y `outbox.lag`
+Alcance: rail simulado: tasa de rechazo, retraso y duplicados configurables; estados de la saga, consumidor de `rail.replies` con inbox, poller con backoff, `CreditStatusQuery`; endpoint de revisión del analista; métricas `saga.stuck` y `outbox.lag`.
 
 **Aceptación:** T-05 a T-10 en verde. Con 20 % de rechazos y 10 % de duplicados, al terminar todas las transferencias están en estado final y la conciliación da cero.
 
-```bash
-make chaos-rail REJECT=0.2 DUP=0.1 N=2000
-make reconcile
-```
-
-> **Prompt.** `transfer-service` (Spring Boot 3.5, JDBC) ya resuelve transferencias internas con outbox. Añade la saga para `rail = EXTERNAL` según `docs/saga.md`: estados en `core.saga_state` con bloqueo optimista por `version`; tras aprobar, emite `CreditInstruction` por outbox; consumidor de `rail.replies.v1` con commit manual e inbox (`core.processed_messages`) en la misma transacción que el cambio de estado; `CreditConfirmed` asienta D en origen y C en la cuenta de compensación; `CreditRejected` libera la retención y marca `FAILED`. Poller cada segundo con `FOR UPDATE SKIP LOCKED` sobre `wake_at`: backoff exponencial, `CreditStatusQuery` al vencer 30 s (nunca compensar sin respuesta) y `COMPENSATION_FAILED` tras 5 intentos. Añade `POST /transfers/{id}/review`. Pruebas con Testcontainers: respuesta duplicada, respuesta tardía, fallo de base durante la compensación, caída entre retención y scoring. No cambies contratos ni DDL.
-
 ### Fase 3 — Ciencia de datos offline
 
-- [ ] `make data`; cuaderno de EDA (volumen por paso, fuga en saldos)
-- [ ] Features punto-en-el-tiempo, split temporal, ambos modelos en MLflow
-- [ ] `thresholds.json`, `model.onnx`, `golden.jsonl`
-- [ ] Crédito: scorecard, razones, informe de equidad, lote a `analytics.credit_scores`
-- [ ] `amlgen` con verdad de terreno
+Alcance: `make data`; cuaderno de EDA (volumen por paso, fuga en saldos); features punto-en-el-tiempo, split temporal, ambos modelos en MLflow; `thresholds.json`, `model.onnx`, `golden.jsonl`; crédito: scorecard, razones, informe de equidad, lote a `analytics.credit_scores`; `amlgen` con verdad de terreno.
 
 **Aceptación:** T-13 (lado Python) y T-14 en verde; MLflow muestra ambos modelos con PR-AUC, recall a FPR fija y costo; el informe de equidad reporta el ratio de impacto dispar por grupo.
 
-```bash
-make data && make ml-train && make ml-export
-pytest ml/tests -q
-make credit-batch
-```
-
-> **Prompt.** Proyecto Python 3.12 en `ml/` (pandas, scikit-learn, XGBoost, MLflow local, skl2onnx, onnxmltools). Entrada: PaySim en `data/raw/paysim.csv`. Implementa: (1) las features de `contracts/features.yaml`, calculadas punto-en-el-tiempo con filas de `step` anterior; prohibido usar `newbalanceOrig`, `oldbalanceDest`, `newbalanceDest` e `isFlaggedFraud`; (2) split por `step` con los cortes de `ml/config.yaml` y hueco de 24 pasos; (3) regresión logística y XGBoost (`eval_metric=aucpr`, parada temprana) registrados en MLflow con PR-AUC, recall a FPR 0,5 % y costo; (4) umbrales `t_review` y `t_block` elegidos solo en validación, guardados en `thresholds.json`; (5) exportación a ONNX y `golden.jsonl` con 1.000 casos (features y score). Pruebas pytest: una feature no cambia al alterar filas futuras; paridad ONNX frente a `predict_proba` con tolerancia 1e-5. Sin SMOTE; semillas fijas.
-
 ### Fase 4 — risk-service e integración
 
-- [ ] Perfil `scoring`: features, ONNX, política de decisión, idempotencia, modelo en sombra
-- [ ] `RemoteScorer` en `transfer-service` con timeout, circuit breaker y fallback
-- [ ] Perfil `stream`: proyección, cadena de reglas, alertas, etiquetas
-- [ ] `simulator replay` y `simulator aml`
+Alcance: perfil `scoring`: features, ONNX, política de decisión, idempotencia, modelo en sombra; `RemoteScorer` en `transfer-service` con timeout, circuit breaker y fallback; perfil `stream`: proyección, cadena de reglas, alertas, etiquetas; `simulator replay` y `simulator aml`.
 
 **Aceptación:** T-11 a T-13 y T-15 en verde; p95 de scoring < 150 ms a 50 TPS; con el scoring detenido la API sigue aceptando con `decision_source = FALLBACK`; informe de precisión y recall por tipología AML.
 
-```bash
-make up && make replay N=20000 TPS=50
-k6 run perf/scoring.js                        # umbral: p(95)<150
-docker compose stop risk-scoring && make replay N=500
-make aml-eval
-```
-
-> **Prompt.** Crea `risk-service` con Quarkus 3 (REST reactivo, cliente PostgreSQL reactivo, Reactive Messaging con Kafka, ONNX Runtime para Java), Java 21, modo JVM. Perfil `scoring`: `POST /internal/v1/scores` según `contracts/openapi.yaml`; calcula las features de `contracts/features.yaml` con dos consultas concurrentes sobre `risk.scoring_log`; ejecuta `model.onnx`; aplica `thresholds.json` con `score >= umbral` tras redondear a 5 decimales; inserta en `scoring_log` con `ON CONFLICT DO NOTHING` y, si el `transfer_id` ya existe, devuelve el resultado guardado. Perfil `stream`: consume `transfer.events.v1`, mantiene `risk.transfer_facts` y evalúa una cadena de `AmlRule` (exención, umbral, fraccionamiento, país de riesgo, fan-in) con parámetros de `risk.aml_rules`; upsert de alertas por `dedupe_key`; inbox para idempotencia. Pruebas: paridad con `golden.jsonl` (tolerancia 1e-5), límites de umbral, evento reentregado sin alerta duplicada.
-
 ### Fase 5 — BI, monitoreo, Kubernetes y CI
 
-- [ ] Vistas `analytics` y dashboard de Metabase con los cinco KPIs
-- [ ] Job de PSI y demostración de drift
-- [ ] Manifiestos para kind con probes y límites
-- [ ] GitHub Actions completo
+Alcance: vistas `analytics` y dashboard de Metabase con los cinco KPIs; job de PSI y demostración de drift; manifiestos para kind con probes y límites; GitHub Actions completo.
 
 **Aceptación:** T-16 y T-17 en verde; el despliegue en kind pasa el smoke; al eliminar un pod de scoring bajo carga el éxito se mantiene ≥ 99 %; `make drift-demo` (montos × 3) marca `alert = true`.
 
-```bash
-kind create cluster --config deploy/kind/cluster.yaml
-make kind-deploy && make smoke
-make drift-demo
-psql "$DB" -c "SELECT feature, psi FROM analytics.drift_metrics WHERE alert ORDER BY psi DESC"
-```
-
-> **Prompt.** Repositorio con servicios ya funcionales en Docker Compose. Entrega: (1) manifiestos Kustomize en `deploy/kind/`: `transfer-service` ×2, `risk-service` con perfil `scoring` ×2 y `stream` ×1, PostgreSQL, Kafka KRaft y Metabase, con probes de liveness y readiness, límites de recursos y ConfigMaps; (2) flujo de GitHub Actions: compilación, pruebas unitarias y de integración con Testcontainers, validación de los esquemas JSON de `contracts/`, pruebas de `ml/` con una muestra de 50.000 filas y smoke de Compose; (3) job `ml/monitor/psi.py`: PSI por feature y del score entre la referencia de entrenamiento y la última ventana de `risk.scoring_log`, con 10 bins por deciles, escrito en `analytics.drift_metrics` con `alert` si PSI > 0,25; (4) script que crea en Metabase, por su API, las cinco preguntas de `docs/kpis.sql`.
-
-## 8. Revisión
+## 8. Riesgos y mitigaciones
 
 | Tipo | Riesgo | Mitigación |
 |---|---|---|
@@ -800,39 +743,3 @@ psql "$DB" -c "SELECT feature, psi FROM analytics.drift_metrics WHERE alert ORDE
 | Datos | Circularidad entre el generador AML y las reglas | Parámetros desacoplados, ruido legítimo, variantes que las reglas no cubren |
 | Datos | El dataset de crédito no admite validación fuera de tiempo | Excepción declarada; Lending Club si se verifica la licencia |
 | Alcance | Cinco fases son muchas para una persona | Línea de corte: fases 1 a 4 con tres reglas AML; kind y crédito son ampliaciones |
-
-**Decisiones a revisar primero:**
-1. ADR-10: Spring Boot 3.5 sin soporte open source frente a 4.x.
-2. Línea de corte del alcance, antes de escribir código.
-3. Conjunto de features A o B, tras el EDA de PaySim.
-4. ADR-04: monto límite del fallback (500) y si conviene fallar cerrado.
-5. ADR-08: un `risk-service` con dos perfiles frente a dos servicios.
-6. Cadena de hash síncrona frente a escritor asíncrono.
-
-## 9. Portafolio
-
-**Esquema del README**
-
-1. **Problema:** un banco digital debe mover dinero sin duplicar ni perder fondos y decidir el riesgo de cada transferencia en menos de 150 ms.
-2. **Arquitectura:** diagrama de §2.1, tabla de servicios y enlaces a los ADR.
-3. **Datos:** datasets, licencias, atribuciones y limitaciones de lo sintético.
-4. **Resultados a medir** (se completan con mediciones propias): PR-AUC y recall a FPR fija de ambos modelos; costo frente a no tener modelo; p95 de scoring a 50 TPS; duplicados y descuadres tras la prueba de caos; precisión y recall por regla AML; ratio de impacto dispar; PSI en la demostración de drift.
-5. **Cómo ejecutar:** `make data`, `make up`, `make replay`; URL de Metabase y MLflow.
-6. **Decisiones y concesiones:** lo que se simplificó y lo que cambiaría en producción.
-
-**Tres frases para entrevistas**
-
-- "Diseñé una saga orquestada con outbox e idempotencia en tres capas; la prueba de caos con rechazos y mensajes duplicados termina con la conciliación contable en cero."
-- "El modelo de fraude se entrena en Python y se sirve en ONNX dentro de un servicio Quarkus; una prueba de paridad en la CI garantiza que Java y Python calculan el mismo score, y el p95 se mide bajo carga."
-- "Elegí los umbrales por costo de negocio con validación temporal y descarté las features que filtraban la etiqueta, aunque eso bajara la métrica; prefiero un resultado defendible a uno inflado."
-
-## Supuestos y puntos a verificar
-
-- VERIFICAR la licencia de PaySim en su ficha de Kaggle (CC BY-SA 4.0) y la de SAML-D y Lending Club antes de usarlos.
-- VERIFICAR en el EDA el volumen y la prevalencia de fraude por `step` en PaySim; ajustar los cortes del split.
-- VERIFICAR la versión LTS de Quarkus y la compatibilidad de onnxmltools con la versión de XGBoost; plan B: XGBoost4J.
-- VERIFICAR que el JAR de ONNX Runtime incluye binarios nativos para la arquitectura de la laptop (x86-64 o ARM64).
-- VERIFICAR si la exportación de dashboards de Metabase está disponible en la edición open source; por eso el plan los crea por API.
-- La lista de países de riesgo se carga desde las publicaciones del GAFI/FATF con fecha de vigencia; cambia varias veces al año y no se fija en el código.
-- Umbrales AML (10.000), costos unitarios, capacidad de revisión (0,5 %) y límite del fallback (500) son supuestos de negocio parametrizados.
-- Las cifras de §1.2 son objetivos de diseño; los resultados se llenan con mediciones propias.

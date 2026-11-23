@@ -2,7 +2,7 @@
 
 - Contexto: la fase 5 añade el esquema `analytics` (vista de §4, `drift_metrics`, `fraud_reasons`), el verificador de la
   cadena de auditoría (T-16), Metabase, el PSI con su demostración, las razones de fraude, el reentrenamiento con
-  promoción y rollback, la carga T-17 y la CI completa. El diseño (§4, §5e–§5g, §6, §7) y el manual dejan sin fijar
+  promoción y rollback, la carga T-17 y la CI completa. El diseño (§4, §5e–§5g, §6, §7) deja sin fijar
   doce detalles; este ADR los registra (D1 a D12) con las concreciones que aparecieron al construir y los límites
   conocidos. Las cifras de §1.2 son objetivos, no resultados.
 
@@ -39,7 +39,7 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 - Contexto: §5f dice «último día simulado» y «dos ventanas seguidas», sin alineación, completitud ni mínimo de filas.
 - Decisión: ventanas de 24 pasos alineadas a `sim_epoch`: la `k` cubre `[24k+1, 24k+24]` (la 24 es 577–600). Datos:
   filas reales de `risk.scoring_log`, es decir, sin `model_version = 'warmup'` **y sin las filas sintéticas de
-  `make perf-scoring`** (`source_ref` con prefijo `perf-`, sin transferencia; docs/resultados/fase-4.md). Completa si
+  `make perf-scoring`** (`source_ref` con prefijo `perf-`, sin transferencia). Completa si
   hay filas con `occurred_at >= window_end`. Menos de 200 filas ⇒ `insufficient`, sin alerta. `alert = true` solo para
   `score` y las `top_features`, con PSI > 0,25 en la ventana y en la anterior contigua y solo con la referencia `valid`
   (D14); las demás se registran sin alerta. Upsert por `(window_start, feature, reference)` con el rol `ml_job`.
@@ -237,10 +237,10 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 
 ### D9 · Metabase
 
-- Contexto: la edición open source no exporta dashboards (manual 0.2).
+- Contexto: la edición open source no exporta dashboards.
 - Decisión: `metabase/metabase:v0.64.6.3` (línea LTS 64, verificada el 2026-11-17), nunca `latest`; perfil `bi`,
   `-Xmx1g`, `mem_limit` 1536m. Base de aplicación `metabase` en la misma instancia con el rol `metabase_app`; datos con
-  `verabank_bi` (el `bi_ro` del manual). Dashboard `VeraBank — Riesgo` por API (`bi/setup_metabase.py`), idempotente.
+  `verabank_bi` (el rol de solo lectura de BI). Dashboard `VeraBank — Riesgo` por API (`bi/setup_metabase.py`), idempotente.
   El aviso de drift es una tarjeta del dashboard (el correo exigiría SMTP).
 - Consecuencias: la conexión filtra `analytics` y `risk`; `verabank_bi` no lee `core`. Una segunda ejecución del
   script solo actualiza.
@@ -260,13 +260,13 @@ Cada decisión sigue el orden contexto, decisión, consecuencias.
 - Contexto: el runner estándar tiene 4 CPU y 16 GB; PaySim no se puede descargar en la CI (licencia CC BY-SA y
   fragilidad).
 - Decisión: muestra **sintética** de 50.000 filas con el esquema de PaySim generada en el job; verificación de firmas
-  en `.githooks/check-signatures.sh` (excluido del `grep` del manual, que si no la detectaría a sí misma); kind solo por
+  en `.githooks/check-signatures.sh` (su directorio queda fuera de la revisión del árbol, que si no lo detectaría a él mismo); kind solo por
   `workflow_dispatch`; carga, T-17 y caos fuera de la CI.
 - Consecuencias: la CI prueba el pipeline, no las métricas del modelo.
 
 ### D12 · kind (ampliación)
 
-- Contexto: ampliación fuera de la línea de corte (manual 0.1).
+- Contexto: ampliación fuera de la línea de corte (`docs/diseno.md` §8).
 - Decisión: Kustomize con base y overlay `kind` en `deploy/kind/`; `cluster.yaml` publica transfer-service (NodePort
   30080 → host 18080) y Metabase (30300 → 13000). transfer-service ×2, risk-scoring ×2 con `PodDisruptionBudget`
   `minAvailable: 1`, risk-stream ×1, PostgreSQL y Kafka KRaft de un broker en StatefulSets con PVC, Metabase y el rail

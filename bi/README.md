@@ -4,7 +4,7 @@
 |---|---|
 | `docs/kpis.sql` | Las cinco consultas de `docs/diseno.md` §5g, **textuales**, con sus marcadores `-- KPI n:` (una prueba lo compara con el diseño). |
 | `docs/kpis-extra.sql` | `-- EXTRA A:` drift activo (alertas de `analytics.drift_metrics` con la referencia `valid` en las dos últimas ventanas, por PSI: es el «aviso de drift» de §5f; `train` no alerta) y `-- EXTRA B:` cola de revisión con las tres razones de `analytics.fraud_reasons`. |
-| `bi/setup_metabase.py` | Crea por la API, idempotente: administrador (primer arranque), conexión `VeraBank` con `verabank_bi` (el `bi_ro` del manual) y sincronización de esquema, colección `VeraBank`, siete tarjetas SQL nativas y el dashboard `VeraBank — Riesgo` (drift arriba, KPI 1–5, cola de revisión). |
+| `bi/setup_metabase.py` | Crea por la API, idempotente: administrador (primer arranque), conexión `VeraBank` con `verabank_bi` (el rol de solo lectura) y sincronización de esquema, colección `VeraBank`, siete tarjetas SQL nativas y el dashboard `VeraBank — Riesgo` (drift arriba, KPI 1–5, cola de revisión). |
 | `bi/check_cards.py` | Consulta cada tarjeta con `POST /api/card/:id/query` e imprime filas y las tres primeras. |
 | `db/scripts/create-metabase-db.sh` | Base de aplicación `metabase` y rol `metabase_app` en la misma instancia (idempotente). |
 

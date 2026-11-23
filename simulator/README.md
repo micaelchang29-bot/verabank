@@ -327,7 +327,7 @@ make amlgen && make aml-eval      # genera, envía, aprueba las revisiones y eva
   instancia se detecta si una alerta de la regla contiene alguna de sus transferencias; precisión = alertas que tocan una
   instancia de su tipología / alertas de la regla); `THRESHOLD`, solo conteo y proporción. Por tipología: instancias,
   detectadas, recall y el techo de `manifest.json` (si el recall lo supera: «inconsistente», se investiga, no se «arregla»).
-  `FAN_IN` y `FAST_PASS`: no cubiertas (recall 0 por diseño, manual 0.1). Aparte: alertas por cada 1.000 transferencias e
+  `FAN_IN` y `FAST_PASS`: no cubiertas (recall 0 por diseño: línea de corte del alcance, `docs/diseno.md` §8). Aparte: alertas por cada 1.000 transferencias e
   instancias con alguna transferencia rechazada por `BLOCK` o sin completar. Salida determinista y solo con cifras
   agregadas. No se ajusta ninguna regla ni parámetro del generador para mejorar las métricas.
 

@@ -1,7 +1,7 @@
 """Crea en Metabase, por su API, la conexión de solo lectura, la colección, las tarjetas de KPIs y el dashboard (D9).
 
 Idempotente: busca cada objeto por nombre y lo actualiza; solo crea lo que falta. La edición open source no exporta
-dashboards (manual 0.2), así que el dashboard es código. Versión fijada en docker-compose.yml (servicio ``metabase``).
+dashboards, así que el dashboard es código. Versión fijada en docker-compose.yml (servicio ``metabase``).
 
 Entorno (de .env, por scripts/bi-up.sh): METABASE_URL, METABASE_ADMIN_EMAIL, METABASE_ADMIN_PASSWORD,
 VERABANK_BI_PASSWORD, POSTGRES_DB y, opcionales, METABASE_DB_HOST/PORT (cómo ve Metabase a PostgreSQL). No imprime
@@ -27,7 +27,7 @@ DATABASE_NAME = "VeraBank"
 COLLECTION_NAME = "VeraBank"
 DASHBOARD_NAME = "VeraBank — Riesgo"
 MARKER = re.compile(r"^-- (KPI \d+|EXTRA [A-Z]): (.+)$")
-BI_ROLE = "verabank_bi"   # el bi_ro del manual (db/README.md)
+BI_ROLE = "verabank_bi"   # rol de solo lectura de BI (db/README.md)
 
 
 @dataclass(frozen=True)

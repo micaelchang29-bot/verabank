@@ -120,7 +120,7 @@ arranque, como las de `analytics`. Las pruebas de transfer-service no ejecutan `
 | `risk_svc` | risk-service en ejecución | `SELECT/INSERT/UPDATE/DELETE` en todas las tablas de `risk` (también las futuras, por `ALTER DEFAULT PRIVILEGES FOR ROLE verabank_risk`); `EXECUTE` en `audit.append` y `USAGE` del esquema `audit`, nada más. No es dueño de ningún objeto. Sin acceso a `core`. |
 | `sim_loader` | calentamiento del replay (D1) | Solo `INSERT` en `risk.scoring_log`. No lee ni modifica nada. |
 | `ml_job` | jobs de ML de la fase 5 (PSI, razones, reentrenamiento) | `SELECT` en `risk.scoring_log` y `risk.fraud_labels`; `SELECT`, `INSERT` y `UPDATE` en `analytics.drift_metrics` y `analytics.fraud_reasons`. Nada en `core`, `audit` ni el resto de `risk`. |
-| `verabank_bi` | BI (el `bi_ro` del manual) | Solo `SELECT` en `analytics` (privilegios por defecto de `roles.sql`, también la vista) y en `risk` (tablas actuales y futuras, `aml_alerts` incluida). Nada en `core` ni en `flyway_analytics`. |
+| `verabank_bi` | BI (solo lectura) | Solo `SELECT` en `analytics` (privilegios por defecto de `roles.sql`, también la vista) y en `risk` (tablas actuales y futuras, `aml_alerts` incluida). Nada en `core` ni en `flyway_analytics`. |
 
 Los creados por `db/init/roles.sql` (`verabank_*`) existen desde la inicialización del volumen. `risk_svc`,
 `sim_loader`, `ml_job` y `verabank_audit` los crea `db/init/roles_runtime.sql`, idempotente y con el superusuario de arranque: lo ejecuta
@@ -149,7 +149,7 @@ cuando exista (fase 4).
 | `STRUCTURING` | `{"threshold": "10000.00", "min_ratio": 0.70, "max_ratio": 1.00, "min_count": 3, "window_hours": 24, "min_total": "10000.00"}` (`max_ratio` es exclusivo) |
 | `COUNTRY_RISK` | `{"high_min_amount": "1000.00", "watch_min_amount": "5000.00"}` |
 
-No hay `FAN_IN` (manual 0.1): se añadirá como versión 1 de esa regla cuando se active.
+No hay `FAN_IN` (línea de corte del alcance, `docs/diseno.md` §8): se añadirá como versión 1 de esa regla cuando se active.
 
 - `db/seed/01_core_seed.sql` (`db/seed/load.sh`): cuenta `CLEARING`, 30 clientes y sus cuentas.
 - `make seed-risk`: inserta `CLEARING` en `risk.aml_exempt_accounts`. `risk` no puede leer `core`, así que el id se
