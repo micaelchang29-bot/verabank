@@ -155,3 +155,70 @@ def test_only_risk_svc_can_execute_audit_append(provisioned_db):
             for role in ("risk_svc", "sim_loader", "verabank_bi", "verabank_risk", "public")
         }
     assert who == {"risk_svc": True, "sim_loader": False, "verabank_bi": False, "verabank_risk": False, "public": False}
+
+
+class TestAuditOwner:
+    """T-16 (HU-07): transfer-service escribe la auditoría, pero no es dueño de nada en audit (db/init/grants.sql).
+
+    Como dueño podía vaciar audit_log, desactivar trg_audit_immutable o redefinir el trigger de la cadena, y
+    verify_chain no lo ve: una tabla vacía no tiene nada que verificar. Cada intento va en una transacción que se
+    revierte, por si alguno pasara.
+    """
+
+    TAMPERING = [
+        "TRUNCATE audit.audit_log",
+        "ALTER TABLE audit.audit_log DISABLE TRIGGER trg_audit_immutable",
+        "ALTER TABLE audit.audit_log DISABLE TRIGGER trg_audit_chain",
+        "DROP TRIGGER trg_audit_immutable ON audit.audit_log",
+        "DROP TABLE audit.audit_log",
+        "ALTER TABLE audit.audit_log OWNER TO verabank_transfer",
+        "CREATE OR REPLACE FUNCTION audit.chain_hash() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$",
+        "CREATE OR REPLACE FUNCTION audit.deny_change() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$",
+        f"ALTER FUNCTION {APPEND} SECURITY INVOKER",
+        "DROP SCHEMA audit CASCADE",
+        "CREATE TABLE audit.extra (n INT)",
+    ]
+
+    @pytest.mark.parametrize("sql", TAMPERING)
+    def test_transfer_service_cannot_empty_or_disarm_the_log(self, provisioned_db, sql):
+        with provisioned_db.connect("verabank_transfer") as conn:
+            with pytest.raises(DENIED):
+                with conn.transaction(force_rollback=True):
+                    conn.execute(sql)
+
+    def test_transfer_service_still_writes_and_the_trigger_still_answers(self, provisioned_db):
+        with provisioned_db.connect("verabank_transfer") as conn:
+            # Una fila que se queda: sin filas, los triggers de fila no llegan a dispararse.
+            conn.execute("INSERT INTO audit.audit_log (actor, action, entity_type, entity_id, detail) "
+                         "VALUES ('transfer-service', 'X', 'TRANSFER', 't-owner', '{}')")  # fmt: skip
+            for sql in ("UPDATE audit.audit_log SET actor = 'x'", "DELETE FROM audit.audit_log"):
+                with pytest.raises(psycopg.errors.RaiseException, match="solo inserción"):
+                    conn.execute(sql)
+
+    def test_even_a_superuser_truncate_is_rejected_by_a_trigger(self, provisioned_db):
+        with provisioned_db.connect(ADMIN) as conn:
+            with pytest.raises(psycopg.errors.RaiseException, match="solo inserción"):
+                with conn.transaction(force_rollback=True):
+                    conn.execute("TRUNCATE audit.audit_log")
+
+    def test_audit_belongs_to_a_role_nobody_logs_in_with(self, provisioned_db):
+        with provisioned_db.connect(ADMIN) as conn:
+            owners = conn.execute(
+                """SELECT 'schema', nspowner::regrole::text FROM pg_namespace WHERE nspname = 'audit'
+                   UNION ALL SELECT relname, relowner::regrole::text FROM pg_class
+                    WHERE relnamespace = 'audit'::regnamespace AND relkind = 'r'
+                   UNION ALL SELECT proname, proowner::regrole::text FROM pg_proc
+                    WHERE pronamespace = 'audit'::regnamespace AND proname <> 'verify_chain'""").fetchall()
+            assert set(owners) == {("schema", "verabank_audit"), ("audit_log", "verabank_audit"),
+                                   ("chain_hash", "verabank_audit"), ("deny_change", "verabank_audit"),
+                                   ("append", "verabank_audit")}  # fmt: skip
+            assert conn.execute("SELECT rolcanlogin FROM pg_roles WHERE rolname = 'verabank_audit'").fetchone() == (False,)
+
+    def test_granting_twice_changes_nothing_in_audit(self, provisioned_db):
+        acl = """SELECT relname, relowner::regrole::text, relacl::text FROM pg_class
+                 WHERE relnamespace = 'audit'::regnamespace ORDER BY 1"""
+        with provisioned_db.connect(ADMIN) as conn:
+            before = conn.execute(acl).fetchall()
+        provisioned_db.script("db-grants.sh")
+        with provisioned_db.connect(ADMIN) as conn:
+            assert conn.execute(acl).fetchall() == before

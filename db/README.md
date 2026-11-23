@@ -95,16 +95,27 @@ Las tablas de apoyo, sin DDL en §4, son:
 
 `audit.append(actor, action, entity_type, entity_id, correlation_id, detail)` (V13) es el único punto por el que
 otro servicio escribe en `audit.audit_log`. Es `SECURITY DEFINER` con `search_path = pg_catalog, pg_temp`, devuelve
-el `audit_id` y lo ejecuta con los privilegios de `verabank_transfer`; el trigger de cadena (V11) asigna
+el `audit_id` y lo ejecuta con los privilegios de su dueño, `verabank_audit` (ver abajo); el trigger de cadena (V11) asigna
 `audit_id`, `prev_hash` y `row_hash`. `EXECUTE` está revocado a `PUBLIC`. No concede nada a `risk_svc`, porque las
 migraciones de audit también corren donde ese rol no existe (pruebas de transfer-service): el `GRANT` va en
 `db/init/grants.sql`.
+
+**Dueño de `audit`.** Las migraciones de `audit` las aplica `verabank_transfer` (como transfer-service), y el rol que
+las aplica queda como dueño: así podía vaciar `audit_log` (`TRUNCATE`), desactivar `trg_audit_immutable` o redefinir
+`audit.chain_hash`, y `verify_chain` no lo detecta (una tabla vacía no tiene nada que verificar). `db/init/grants.sql`
+pasa el esquema, la tabla y sus tres funciones a `verabank_audit`, un rol sin login, y deja a `verabank_transfer`
+`USAGE` y `SELECT/INSERT/UPDATE/DELETE` sobre `audit_log`: `UPDATE` y `DELETE` los sigue rechazando el trigger con
+su mensaje (T-16 a), que ya no puede desactivar; `TRUNCATE` no se concede, y el trigger `trg_audit_no_truncate` (también
+en `grants.sql`) lo rechaza incluso a un superusuario. Consecuencia: transfer-service ya no puede aplicar una
+migración nueva de `audit` sobre una base con los permisos aplicados; esa migración tendría que ejecutarla el rol de
+arranque, como las de `analytics`. Las pruebas de transfer-service no ejecutan `grants.sql`: allí sigue siendo dueño.
 
 ## Roles y permisos
 
 | Rol | Quién lo usa | Permisos |
 |---|---|---|
-| `verabank_transfer` | transfer-service | Dueño de `core` y `audit`. |
+| `verabank_transfer` | transfer-service | Dueño de `core`. En `audit`, `USAGE` y `SELECT/INSERT/UPDATE/DELETE` sobre `audit_log` (sin `TRUNCATE`); aplica sus migraciones, pero después de `make db-grants` no es dueño de nada en `audit`. |
+| `verabank_audit` | nadie (sin login) | Dueño de `audit`: el esquema, `audit_log` y `chain_hash`, `deny_change` y `append`. |
 | `verabank_risk` | migraciones de `risk` | Dueño de `risk`. Sin acceso a `core` ni `audit`. |
 | `risk_svc` | risk-service en ejecución | `SELECT/INSERT/UPDATE/DELETE` en todas las tablas de `risk` (también las futuras, por `ALTER DEFAULT PRIVILEGES FOR ROLE verabank_risk`); `EXECUTE` en `audit.append` y `USAGE` del esquema `audit`, nada más. No es dueño de ningún objeto. Sin acceso a `core`. |
 | `sim_loader` | calentamiento del replay (D1) | Solo `INSERT` en `risk.scoring_log`. No lee ni modifica nada. |
@@ -112,7 +123,7 @@ migraciones de audit también corren donde ese rol no existe (pruebas de transfe
 | `verabank_bi` | BI (el `bi_ro` del manual) | Solo `SELECT` en `analytics` (privilegios por defecto de `roles.sql`, también la vista) y en `risk` (tablas actuales y futuras, `aml_alerts` incluida). Nada en `core` ni en `flyway_analytics`. |
 
 Los creados por `db/init/roles.sql` (`verabank_*`) existen desde la inicialización del volumen. `risk_svc`,
-`sim_loader` y `ml_job` los crea `db/init/roles_runtime.sql`, idempotente y con el superusuario de arranque: lo ejecuta
+`sim_loader`, `ml_job` y `verabank_audit` los crea `db/init/roles_runtime.sql`, idempotente y con el superusuario de arranque: lo ejecuta
 `db/init/initdb.d/20-roles-runtime.sh` en los volúmenes nuevos y `make db-roles` en los que ya existen. Las
 contraseñas llegan del entorno (`.env`): `RISK_SVC_PASSWORD`, `SIM_LOADER_PASSWORD` y `ML_JOB_PASSWORD`, sin valor en
 `.env.example`, sin imprimirse y sin pasar por la línea de comandos.
@@ -174,7 +185,8 @@ CI). Levanta PostgreSQL 16.16 desechable con los scripts de `db/init`, aplica co
 y ejecuta los scripts de `scripts/` contra ese contenedor. Cubre: migraciones desde cero y dos veces seguidas;
 `core` y `audit` migran en una base sin `risk_svc`; volumen nuevo y existente quedan iguales; una sola versión activa
 por regla y parámetros inmutables; `risk_svc` no lee `core` ni inserta en `audit.audit_log`, pero `audit.append`
-inserta y encadena el hash; `sim_loader` solo inserta en `scoring_log`; BI solo lee; `make seed-risk` y
+inserta y encadena el hash; `verabank_transfer` escribe en `audit_log` pero no puede vaciarla, desactivar ni redefinir
+sus triggers, ni tocar el esquema (`TestAuditOwner`), y un `TRUNCATE` del superusuario también falla; `sim_loader` solo inserta en `scoring_log`; BI solo lee; `make seed-risk` y
 `make load-country-risk` idempotentes; el CSV sin duplicados y solo con códigos alfa-2 reales.
 
 Fase 5 (`test_analytics.py`, `test_audit_chain.py`): migraciones de `analytics` desde cero y dos veces; la vista
