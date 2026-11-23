@@ -249,6 +249,36 @@ class AlertsApiIT {
         assertAuditChainIntact();
     }
 
+    /**
+     * La cadena de auditoría se serializa con pg_advisory_xact_lock(815001) hasta el commit, y esa espera cuenta en el
+     * statement_timeout de 250 ms de risk_svc. Con transfer-service reteniendo la cadena más que eso (p. ej. en el pico
+     * de carga), la transición de un analista fallaba entera con un 500. Aquí otra sesión la retiene 3 s.
+     */
+    @Test
+    void aTransitionWaitsForTheAuditChainLongerThanTheRoleStatementTimeout() throws Exception {
+        UUID id = alert("THRESHOLD", "MEDIUM", "OPEN", 0);
+        try (java.sql.Connection holder = com.verabank.risk.support.PgInfra.admin()) {
+            holder.setAutoCommit(false);
+            try (java.sql.Statement s = holder.createStatement()) {
+                s.execute("SELECT pg_advisory_xact_lock(815001)");
+            }
+            CompletableFuture<Void> release = CompletableFuture.runAsync(() -> {
+                try {
+                    Thread.sleep(3000);
+                    holder.rollback();
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+            long start = System.nanoTime();
+            patch(ops(), id, "{\"status\":\"IN_REVIEW\"}").then().statusCode(200).body("status", equalTo("IN_REVIEW"));
+            assertThat((System.nanoTime() - start) / 1_000_000).isGreaterThanOrEqualTo(2900);   // sí esperó la cadena
+            release.get();
+        }
+        assertThat(Db.queryLong("SELECT count(*) FROM audit.audit_log WHERE entity_id = ?", id.toString())).isEqualTo(1);
+        assertAuditChainIntact();
+    }
+
     private static void assertAuditChainIntact() {
         // prev_hash apunta al row_hash anterior y row_hash se recalcula con la fórmula de V11.
         assertThat(Db.queryLong("""
